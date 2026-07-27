@@ -324,6 +324,18 @@ html, body{ margin:0; padding:0; background:#121010; }
 .bm-heute{ display:flex; align-items:center; gap:14px; padding:16px 20px; margin-bottom:18px; border-radius:12px; background:linear-gradient(135deg, var(--gold-tint), transparent); border:1px solid var(--gold-line); }
 .bm-heute-n{ font-family:var(--fig); font-weight:600; font-size:30px; color:var(--gold-bright); line-height:1; flex:0 0 auto; }
 .bm-heute-t{ font-size:13.5px; color:var(--ink); line-height:1.4; }
+
+.bm-badge-round{ display:inline-flex; align-items:center; justify-content:center; min-width:19px; height:19px; padding:0 5px; border-radius:50%; background:var(--gold); color:#1A1710; font-size:10.5px; font-weight:800; font-family:var(--sans); vertical-align:middle; }
+.bm-tab .bm-badge-round{ margin-left:5px; }
+
+.bm-heute-new{ display:flex; gap:20px; flex-wrap:wrap; padding:12px 4px 20px; font-size:13px; color:var(--graphite); }
+.bm-heute-new span > .bm-badge-round{ margin-right:7px; }
+
+/* Dashboard-Abschnitte als klare Karten */
+.bm-dash-card{ border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:16px; background:linear-gradient(180deg, rgba(255,255,255,.012), transparent); }
+.bm-dash-h{ display:flex; align-items:center; gap:10px; font-family:var(--serif); font-weight:700; font-size:15px; color:var(--ink); margin-bottom:16px; }
+.bm-dash-icon{ display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:8px; background:var(--gold-tint); color:var(--gold); font-size:14px; flex:0 0 auto; }
+.bm-dash-card .bm-task:last-child, .bm-dash-card .bm-feed-item:last-child, .bm-dash-card .bm-activity-item:last-child{ margin-bottom:0; }
 .bm-section-h{ font-family:var(--serif); font-weight:700; font-size:16px; margin:0 0 14px; display:flex; align-items:center; justify-content:space-between; }
 
 /* Feed */
@@ -417,6 +429,13 @@ label.bm-f{ display:block; font-size:11.5px; color:var(--mute); margin-bottom:5p
 
 /* Match-Zeile */
 .bm-match-row{ border:1px solid var(--line); border-radius:10px; padding:14px; background:var(--panel-2); margin-bottom:9px; }
+.bm-match-row.clickable{ cursor:pointer; transition:border-color .15s ease, transform .15s ease; }
+.bm-match-row.clickable:hover{ border-color:var(--gold-line); transform:translateX(2px); }
+
+.bm-mstatus{ font-size:11px; font-weight:600; letter-spacing:.02em; padding:5px 11px; border-radius:20px; white-space:nowrap; flex:0 0 auto; }
+.bm-mstatus.offen{ color:var(--mute); border:1px solid var(--line); }
+.bm-mstatus.kontakt{ color:var(--gold); border:1px solid var(--gold-line); background:var(--gold-tint); }
+.bm-mstatus.done{ color:var(--gold-bright); border:1px solid var(--gold-line); background:rgba(201,168,95,.14); }
 .bm-match-row.hit{ border-color:var(--gold-line); background:var(--gold-tint); }
 
 .bm-divider{ height:1px; background:var(--line); margin:14px 0; }
@@ -711,7 +730,7 @@ function FollowUpPopup({ overdue, onClose, onDone, onOpenBuyer }) {
 /* =========================================================================
    ÜBERSICHT (DASHBOARD)
    ========================================================================= */
-function Dashboard({ properties, buyers, allMatches, pendingCount, activity, setTab, onOpenMatch, onOpenBuyer, updBuyer, notify, addActivity }) {
+function Dashboard({ properties, buyers, allMatches, pendingCount, neueObjekteHeute, neueKaeuferHeute, activity, setTab, onOpenMatch, onOpenBuyer, updBuyer, notify, addActivity }) {
   const neueKaeufer7 = buyers.filter((b) => b.created_at && daysAgo(b.created_at) <= 7).length;
   const openMatches = allMatches.filter((m) => m.matchStatus !== "erledigt");
   const offeneVoll = openMatches.filter((m) => m.volltreffer).length;
@@ -753,6 +772,13 @@ function Dashboard({ properties, buyers, allMatches, pendingCount, activity, set
         </div>
       )}
 
+      {(neueObjekteHeute > 0 || neueKaeuferHeute > 0) && (
+        <div className="bm-heute-new">
+          {neueObjekteHeute > 0 && <span><span className="bm-badge-round">+{neueObjekteHeute}</span> neue Objekte heute</span>}
+          {neueKaeuferHeute > 0 && <span><span className="bm-badge-round">+{neueKaeuferHeute}</span> neue Käufer heute</span>}
+        </div>
+      )}
+
       <div className="bm-stats">
         <button className="bm-stat clickable" onClick={() => setTab("objekte")}><div className="bm-stat-v">{properties.length}</div><div className="bm-stat-l">Objekte im Bestand</div></button>
         <button className="bm-stat clickable" onClick={() => setTab("kaeufer")}><div className="bm-stat-v">{buyers.length}</div><div className="bm-stat-l">Käufer gesamt</div></button>
@@ -768,8 +794,8 @@ function Dashboard({ properties, buyers, allMatches, pendingCount, activity, set
       )}
 
       {tasks.length > 0 && (
-        <>
-          <div className="bm-h2" style={{ marginBottom: 14 }}>Wiedervorlagen</div>
+        <div className="bm-dash-card">
+          <div className="bm-dash-h"><span className="bm-dash-icon">◷</span>Wiedervorlagen</div>
           {tasks.map((b) => {
             const overdue = b.follow_up < today;
             return (
@@ -781,31 +807,34 @@ function Dashboard({ properties, buyers, allMatches, pendingCount, activity, set
               </div>
             );
           })}
-        </>
+        </div>
       )}
 
-      <div className="bm-h2" style={{ marginTop: 24, marginBottom: 14 }}>Offene Übereinstimmungen</div>
-      {feed.length === 0 ? (
-        <div className="bm-empty">Noch keine offenen Übereinstimmungen. Sobald Objekte und Käufer zusammenpassen, erscheinen sie hier zum Bearbeiten.</div>
-      ) : (
-        <>
-          <p className="bm-muted bm-small" style={{ marginTop: -6, marginBottom: 12 }}>Anklicken, um Kontakt aufzunehmen oder als erledigt zu markieren.</p>
-          {feed.map((m, i) => (
-            <div className={"bm-feed-item clickable" + (m.volltreffer ? " hit" : "")} key={i} onClick={() => onOpenMatch(m)}>
-              <ScoreRing score={m.score} size={44} />
-              <div className="bm-feed-info">
-                <div className="bm-feed-title">{m.p.titel || "Ohne Bezeichnung"} <span className="bm-muted">↔</span> {m.b.name || "Ohne Namen"}</div>
-                <div className="bm-feed-sub">{m.p.ort || m.p.plz} · {m.volltreffer ? "Volltreffer" : "Guter Match"}{m.matchStatus === "kontaktiert" ? " · kontaktiert" : ""}</div>
+      <div className="bm-dash-card">
+        <div className="bm-dash-h"><span className="bm-dash-icon">⇄</span>Offene Übereinstimmungen</div>
+        {feed.length === 0 ? (
+          <div className="bm-empty">Noch keine offenen Übereinstimmungen. Sobald Objekte und Käufer zusammenpassen, erscheinen sie hier zum Bearbeiten.</div>
+        ) : (
+          <>
+            <p className="bm-muted bm-small" style={{ marginTop: -6, marginBottom: 12 }}>Anklicken, um Kontakt aufzunehmen oder als erledigt zu markieren.</p>
+            {feed.map((m, i) => (
+              <div className={"bm-feed-item clickable" + (m.volltreffer ? " hit" : "")} key={i} onClick={() => onOpenMatch(m)}>
+                <ScoreRing score={m.score} size={44} />
+                <div className="bm-feed-info">
+                  <div className="bm-feed-title">{m.p.titel || "Ohne Bezeichnung"} <span className="bm-muted">↔</span> {m.b.name || "Ohne Namen"}</div>
+                  <div className="bm-feed-sub">{m.p.ort || m.p.plz} · {m.volltreffer ? "Volltreffer" : "Guter Match"}</div>
+                </div>
+                <MatchStatusBadge status={m.matchStatus} updatedAt={m.matchUpdatedAt} />
+                <span className="bm-feed-arrow">→</span>
               </div>
-              <span className="bm-feed-arrow">→</span>
-            </div>
-          ))}
-        </>
-      )}
+            ))}
+          </>
+        )}
+      </div>
 
       {activity && activity.length > 0 && (
-        <>
-          <div className="bm-h2" style={{ marginTop: 24, marginBottom: 14 }}>Letzte Aktivität</div>
+        <div className="bm-dash-card">
+          <div className="bm-dash-h"><span className="bm-dash-icon">☰</span>Letzte Aktivität</div>
           {activity.slice(0, 8).map((a) => (
             <div className="bm-activity-item" key={a.id}>
               <span className="bm-activity-dot" />
@@ -813,7 +842,7 @@ function Dashboard({ properties, buyers, allMatches, pendingCount, activity, set
               <span className="bm-activity-time">{relTime(a.created_at)}</span>
             </div>
           ))}
-        </>
+        </div>
       )}
 
       <div className="bm-row" style={{ marginTop: 20 }}>
@@ -985,7 +1014,7 @@ function ExposeModal({ p, onClose }) {
 /* =========================================================================
    OBJEKT-DETAILSEITE
    ========================================================================= */
-function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben, onExpose, onSend, onStatusChange, onUebernehmen }) {
+function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben, onExpose, onSend, onStatusChange, onUebernehmen, onOpenMatch }) {
   const r = rendite(p);
   const ms = matchesFor(p);
   const pending = p.status === "ungeprüft";
@@ -1071,14 +1100,17 @@ function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben,
               const tier = m.volltreffer ? "voll" : m.score >= 60 ? "gut" : "teil";
               const tierText = m.volltreffer ? "Volltreffer" : m.score >= 60 ? "Guter Match" : "Teilweise";
               return (
-                <div className={"bm-match-row" + (m.volltreffer ? " hit" : "")} key={m.b.id}>
-                  <div className="bm-row" style={{ gap: 14 }}>
-                    <ScoreRing score={m.score} />
-                    <div>
-                      <p className="bm-h2">{m.b.name || "Ohne Namen"}</p>
-                      <p className="bm-muted bm-small">{m.b.email}{m.b.telefon ? " · " + m.b.telefon : ""}</p>
-                      <span className={"bm-tier " + tier}>{tierText}</span>
+                <div className={"bm-match-row" + (onOpenMatch ? " clickable" : "") + (m.volltreffer ? " hit" : "")} key={m.b.id} onClick={() => onOpenMatch && onOpenMatch(m)}>
+                  <div className="bm-between">
+                    <div className="bm-row" style={{ gap: 14 }}>
+                      <ScoreRing score={m.score} />
+                      <div>
+                        <p className="bm-h2">{m.b.name || "Ohne Namen"}</p>
+                        <p className="bm-muted bm-small">{m.b.email}{m.b.telefon ? " · " + m.b.telefon : ""}</p>
+                        <span className={"bm-tier " + tier}>{tierText}</span>
+                      </div>
                     </div>
+                    <MatchStatusBadge status={m.matchStatus} updatedAt={m.matchUpdatedAt} />
                   </div>
                   <div className="bm-row" style={{ marginTop: 12 }}>
                     <Chip lbl="Budget" v={m.chips.budget} />
@@ -1105,7 +1137,7 @@ function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben,
 /* =========================================================================
    PRÜFUNG (neu angelegte Objekte freigeben oder verwerfen)
    ========================================================================= */
-function PruefungPanel({ pending, matchesFor, updProp, delProp, notify, addActivity }) {
+function PruefungPanel({ pending, matchesFor, updProp, delProp, notify, addActivity, onOpenMatch }) {
   const [detail, setDetail] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
@@ -1167,13 +1199,14 @@ function PruefungPanel({ pending, matchesFor, updProp, delProp, notify, addActiv
             notify("✓ Kontaktdaten übernommen");
             setDetail(saved);
           }}
+          onOpenMatch={onOpenMatch}
         />
       )}
     </>
   );
 }
 
-function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delProp, notify, addActivity }) {
+function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delProp, notify, addActivity, onOpenMatch }) {
   const [edit, setEdit] = useState(null);
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
@@ -1282,6 +1315,7 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
             notify("✓ Kontaktdaten übernommen");
             setDetail(saved);
           }}
+          onOpenMatch={onOpenMatch}
         />
       )}
     </>
@@ -1480,9 +1514,10 @@ function BuyerDetail({ b, properties, onClose, onSave, onDelete, notify, addActi
 /* =========================================================================
    MATCHES
    ========================================================================= */
-function MatchesPanel({ properties, matchesFor }) {
+function MatchesPanel({ properties, matchesFor, onOpenMatch }) {
   const [q, setQ] = useState("");
   const [minScore, setMinScore] = useState(0);
+  const [statusFilter, setStatusFilter] = useState("alle");
 
   const visibleProps = properties.filter((p) => {
     if (q.trim() && !`${p.titel || ""} ${p.ort || ""}`.toLowerCase().includes(q.toLowerCase())) return false;
@@ -1493,7 +1528,7 @@ function MatchesPanel({ properties, matchesFor }) {
     <>
       <div style={{ marginBottom: 16 }}>
         <p className="bm-h1">Übereinstimmungen</p>
-        <p className="bm-muted bm-small">Für jedes Objekt die passenden Käufer, automatisch sortiert nach Passung.</p>
+        <p className="bm-muted bm-small">Für jedes Objekt die passenden Käufer, automatisch sortiert nach Passung. Anklicken zum Bearbeiten.</p>
       </div>
 
       {properties.length === 0 ? (
@@ -1508,9 +1543,16 @@ function MatchesPanel({ properties, matchesFor }) {
               ))}
             </div>
           </div>
+          <div className="bm-filters" style={{ marginBottom: 18, marginTop: -8 }}>
+            {[{ v: "alle", l: "Jeder Status" }, { v: "offen", l: "Nicht kontaktiert" }, { v: "kontaktiert", l: "Kontaktiert" }, { v: "erledigt", l: "Erledigt" }].map((o) => (
+              <button key={o.v} className={"bm-fchip" + (statusFilter === o.v ? " on" : "")} onClick={() => setStatusFilter(o.v)}>{o.l}</button>
+            ))}
+          </div>
 
           {visibleProps.map((p) => {
-            const ms = matchesFor(p).filter((m) => (minScore === 100 ? m.volltreffer : m.score >= minScore));
+            const ms = matchesFor(p)
+              .filter((m) => (minScore === 100 ? m.volltreffer : m.score >= minScore))
+              .filter((m) => statusFilter === "alle" || m.matchStatus === statusFilter);
             return (
               <div className="bm-card" key={p.id}>
                 <div className="bm-prop-card">
@@ -1528,7 +1570,7 @@ function MatchesPanel({ properties, matchesFor }) {
                     const tier = m.volltreffer ? "voll" : m.score >= 60 ? "gut" : "teil";
                     const tierText = m.volltreffer ? "Volltreffer" : m.score >= 60 ? "Guter Match" : "Teilweise";
                     return (
-                      <div className={"bm-match-row" + (m.volltreffer ? " hit" : "")} key={m.b.id}>
+                      <div className={"bm-match-row clickable" + (m.volltreffer ? " hit" : "")} key={m.b.id} onClick={() => onOpenMatch(m)}>
                         <div className="bm-between">
                           <div className="bm-row" style={{ gap: 14 }}>
                             <ScoreRing score={m.score} />
@@ -1538,6 +1580,7 @@ function MatchesPanel({ properties, matchesFor }) {
                               <span className={"bm-tier " + tier}>{tierText}</span>
                             </div>
                           </div>
+                          <MatchStatusBadge status={m.matchStatus} updatedAt={m.matchUpdatedAt} />
                         </div>
                         <div className="bm-row" style={{ marginTop: 12 }}>
                           <Chip lbl="Budget" v={m.chips.budget} />
@@ -1562,6 +1605,13 @@ function MatchesPanel({ properties, matchesFor }) {
 const Chip = ({ lbl, v }) => (
   <span className={"bm-chip" + (v === 1 ? " on" : v === 0.5 ? " half" : "")}>{v === 0.5 ? "~ " : ""}{lbl}</span>
 );
+
+const MatchStatusBadge = ({ status, updatedAt }) => {
+  const datum = updatedAt ? new Date(updatedAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : "";
+  if (status === "erledigt") return <span className="bm-mstatus done">✓ Erledigt{datum ? " · " + datum : ""}</span>;
+  if (status === "kontaktiert") return <span className="bm-mstatus kontakt">● Kontaktiert{datum ? " · " + datum : ""}</span>;
+  return <span className="bm-mstatus offen">Noch nicht kontaktiert</span>;
+};
 
 /* =========================================================================
    PASSWORT-GATE
@@ -1642,28 +1692,39 @@ export default function BestandsMatch() {
   const updBuyer = async (id, f) => { const clean = { ...f }; delete clean.id; const saved = await sbUpdate("kaeufer", id, clean); setBuyers((prev) => prev.map((x) => (x.id === id ? saved : x))); return saved; };
   const delBuyer = async (id) => { await sbDelete("kaeufer", id); setBuyers((prev) => prev.filter((x) => x.id !== id)); };
 
-  const matchesFor = (p) => buyers.map((b) => ({ b, ...bewerte(p, b) })).filter((m) => m.score > 0).sort((a, z) => z.score - a.score);
   const liveProperties = properties.filter((p) => p.status !== "ungeprüft");
   const pendingProperties = properties.filter((p) => p.status === "ungeprüft");
   const matchStatusMap = useMemo(() => {
     const map = new Map();
-    matchStatuses.forEach((r) => map.set(`${r.objekt_id}_${r.kaeufer_id}`, r.status));
+    matchStatuses.forEach((r) => map.set(`${r.objekt_id}_${r.kaeufer_id}`, r));
     return map;
   }, [matchStatuses]);
+  const enrich = (p, b, m) => {
+    const row = matchStatusMap.get(`${p.id}_${b.id}`);
+    return { p, b, ...m, matchStatus: row?.status || "offen", matchUpdatedAt: row?.updated_at || row?.created_at || null };
+  };
+  const matchesFor = (p) => buyers
+    .map((b) => enrich(p, b, bewerte(p, b)))
+    .filter((m) => m.score > 0)
+    .sort((a, z) => z.score - a.score);
   const allMatches = useMemo(() => {
     const out = [];
     liveProperties.forEach((p) => buyers.forEach((b) => {
       const m = bewerte(p, b);
-      if (m.score > 0) out.push({ p, b, ...m, matchStatus: matchStatusMap.get(`${p.id}_${b.id}`) || "offen" });
+      if (m.score > 0) out.push(enrich(p, b, m));
     }));
     return out;
   }, [liveProperties, buyers, matchStatusMap]);
   const totalVoll = allMatches.filter((m) => m.volltreffer && m.matchStatus !== "erledigt").length;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isToday = (iso) => !!iso && iso.slice(0, 10) === todayStr;
+  const neueObjekteHeute = properties.filter((p) => isToday(p.created_at)).length;
+  const neueKaeuferHeute = buyers.filter((b) => isToday(b.created_at)).length;
 
   const [matchAction, setMatchAction] = useState(null);
   const [buyerDetail, setBuyerDetail] = useState(null);
   const markMatch = async (m, status) => {
-    const saved = await sbUpsert("match_status", { objekt_id: m.p.id, kaeufer_id: m.b.id, status }, "objekt_id,kaeufer_id");
+    const saved = await sbUpsert("match_status", { objekt_id: m.p.id, kaeufer_id: m.b.id, status, updated_at: new Date().toISOString() }, "objekt_id,kaeufer_id");
     setMatchStatuses((prev) => {
       const idx = prev.findIndex((r) => r.objekt_id === m.p.id && r.kaeufer_id === m.b.id);
       if (idx >= 0) { const next = [...prev]; next[idx] = saved; return next; }
@@ -1693,17 +1754,17 @@ export default function BestandsMatch() {
             <div className="bm-tabs">
               <button className={"bm-tab" + (tab === "uebersicht" ? " on" : "")} onClick={() => setTab("uebersicht")}>Übersicht</button>
               <button className={"bm-tab" + (tab === "objekte" ? " on" : "")} onClick={() => setTab("objekte")}>Objekte<span className="bm-badge">{liveProperties.length}</span></button>
-              <button className={"bm-tab" + (tab === "pruefung" ? " on" : "")} onClick={() => setTab("pruefung")}>Prüfung{pendingProperties.length > 0 && <span className="bm-badge alert">{pendingProperties.length}</span>}</button>
-              <button className={"bm-tab" + (tab === "kaeufer" ? " on" : "")} onClick={() => setTab("kaeufer")}>Käufer<span className="bm-badge">{buyers.length}</span></button>
+              <button className={"bm-tab" + (tab === "pruefung" ? " on" : "")} onClick={() => setTab("pruefung")}>Prüfung{pendingProperties.length > 0 && <span className="bm-badge alert">{pendingProperties.length}</span>}{neueObjekteHeute > 0 && <span className="bm-badge-round" title={`${neueObjekteHeute} heute neu`}>+{neueObjekteHeute}</span>}</button>
+              <button className={"bm-tab" + (tab === "kaeufer" ? " on" : "")} onClick={() => setTab("kaeufer")}>Käufer<span className="bm-badge">{buyers.length}</span>{neueKaeuferHeute > 0 && <span className="bm-badge-round" title={`${neueKaeuferHeute} heute neu`}>+{neueKaeuferHeute}</span>}</button>
               <button className={"bm-tab" + (tab === "matches" ? " on" : "")} onClick={() => setTab("matches")}>Matches{totalVoll > 0 && <span className="bm-badge">{totalVoll}</span>}</button>
             </div>
 
             <div className="bm-body">
-              {tab === "uebersicht" && <Dashboard properties={liveProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} activity={activity} setTab={setTab} onOpenMatch={setMatchAction} onOpenBuyer={setBuyerDetail} updBuyer={updBuyer} notify={notify} addActivity={addActivity} />}
-              {tab === "objekte" && <ObjektePanel properties={properties} buyers={buyers} matchesFor={matchesFor} addProp={addProp} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} />}
-              {tab === "pruefung" && <PruefungPanel pending={pendingProperties} matchesFor={matchesFor} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} />}
+              {tab === "uebersicht" && <Dashboard properties={liveProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} neueObjekteHeute={neueObjekteHeute} neueKaeuferHeute={neueKaeuferHeute} activity={activity} setTab={setTab} onOpenMatch={setMatchAction} onOpenBuyer={setBuyerDetail} updBuyer={updBuyer} notify={notify} addActivity={addActivity} />}
+              {tab === "objekte" && <ObjektePanel properties={properties} buyers={buyers} matchesFor={matchesFor} addProp={addProp} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} onOpenMatch={setMatchAction} />}
+              {tab === "pruefung" && <PruefungPanel pending={pendingProperties} matchesFor={matchesFor} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} onOpenMatch={setMatchAction} />}
               {tab === "kaeufer" && <KaeuferPanel buyers={buyers} properties={liveProperties} updBuyer={updBuyer} delBuyer={delBuyer} notify={notify} addActivity={addActivity} />}
-              {tab === "matches" && <MatchesPanel properties={liveProperties} matchesFor={matchesFor} />}
+              {tab === "matches" && <MatchesPanel properties={liveProperties} matchesFor={matchesFor} onOpenMatch={setMatchAction} />}
             </div>
           </div>
           {toast && <div className="bm-toast">{toast}</div>}

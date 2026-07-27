@@ -49,6 +49,13 @@ async function sbDelete(table, id) {
   const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/${table}?id=eq.${id}`, { method: "DELETE", headers: sbHeaders() });
   if (!res.ok) throw new Error(`sbDelete ${table} failed`);
 }
+async function sbUpsert(table, row, conflictCols) {
+  const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/${table}?on_conflict=${conflictCols}`, {
+    method: "POST", headers: sbHeaders({ Prefer: "resolution=merge-duplicates,return=representation" }), body: JSON.stringify(row),
+  });
+  if (!res.ok) { const t = await res.text().catch(() => ""); throw new Error(t || `sbUpsert ${table} failed`); }
+  return (await res.json())[0];
+}
 
 /* =========================================================================
    HILFSFUNKTIONEN
@@ -306,9 +313,17 @@ html, body{ margin:0; padding:0; background:#121010; }
 
 /* Dashboard */
 .bm-stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:26px; }
-.bm-stat{ background:var(--panel); padding:20px; }
+.bm-stat{ background:var(--panel); padding:20px; border:none; text-align:left; font:inherit; cursor:default; display:block; width:100%; }
+.bm-stat.clickable{ cursor:pointer; transition:background .15s ease; }
+.bm-stat.clickable:hover{ background:var(--panel-2); }
+.bm-stat.alert .bm-stat-v{ color:var(--gold-bright); }
 .bm-stat-v{ font-family:var(--fig); font-weight:500; font-size:28px; color:var(--gold); letter-spacing:-.01em; line-height:1; }
 .bm-stat-l{ font-size:12px; color:var(--graphite); margin-top:8px; }
+
+/* Heute-Banner */
+.bm-heute{ display:flex; align-items:center; gap:14px; padding:16px 20px; margin-bottom:18px; border-radius:12px; background:linear-gradient(135deg, var(--gold-tint), transparent); border:1px solid var(--gold-line); }
+.bm-heute-n{ font-family:var(--fig); font-weight:600; font-size:30px; color:var(--gold-bright); line-height:1; flex:0 0 auto; }
+.bm-heute-t{ font-size:13.5px; color:var(--ink); line-height:1.4; }
 .bm-section-h{ font-family:var(--serif); font-weight:700; font-size:16px; margin:0 0 14px; display:flex; align-items:center; justify-content:space-between; }
 
 /* Feed */
@@ -318,14 +333,24 @@ html, body{ margin:0; padding:0; background:#121010; }
 .bm-feed-title{ font-size:14px; font-weight:600; color:var(--ink); }
 .bm-feed-sub{ font-size:12px; color:var(--mute); margin-top:2px; }
 .bm-feed-time{ font-size:11px; color:var(--mute); flex:0 0 auto; }
+.bm-feed-item.clickable{ cursor:pointer; transition:border-color .15s ease, transform .15s ease; }
+.bm-feed-item.clickable:hover{ border-color:var(--gold-line); transform:translateX(2px); }
+.bm-feed-arrow{ color:var(--gold); font-size:16px; flex:0 0 auto; }
+
+/* Match-Bearbeiten Modal */
+.bm-matchpair{ display:flex; align-items:center; gap:16px; margin-top:18px; }
+.bm-matchpair-side{ flex:1; padding:14px 16px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2); }
+.bm-matchpair-link{ font-family:var(--fig); font-size:22px; color:var(--gold); flex:0 0 auto; }
+@media(max-width:520px){ .bm-matchpair{ flex-direction:column; } .bm-matchpair-link{ transform:rotate(90deg); } }
 
 /* Aufgaben / Wiedervorlage */
-.bm-task{ display:flex; align-items:center; gap:14px; padding:12px 16px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; background:var(--panel-2); cursor:pointer; transition:border-color .15s; }
+.bm-task{ display:flex; align-items:center; gap:14px; padding:12px 16px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; background:var(--panel-2); transition:border-color .15s; }
 .bm-task:hover{ border-color:var(--gold-line); }
 .bm-task.overdue{ border-color:rgba(224,138,111,.4); background:rgba(224,138,111,.06); }
 .bm-task-date{ font-family:var(--fig); font-size:14px; color:var(--gold); flex:0 0 auto; min-width:44px; }
 .bm-task.overdue .bm-task-date{ color:#e08a6f; }
-.bm-task-name{ flex:1; font-size:13.5px; color:var(--ink); font-weight:600; }
+.bm-task-name{ flex:1; font-size:13.5px; color:var(--ink); font-weight:600; cursor:pointer; }
+.bm-task-name:hover{ text-decoration:underline; }
 .bm-task-tag{ font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--mute); }
 .bm-task.overdue .bm-task-tag{ color:#e08a6f; }
 
@@ -589,67 +614,193 @@ function ObjektForm({ initial, onSave, onCancel, saving }) {
 }
 
 /* =========================================================================
+   MATCH BEARBEITEN (aus dem Übersichts-Feed, verbindet Objekt + Käufer)
+   ========================================================================= */
+function MatchActionModal({ m, onClose, onMarkStatus, notify }) {
+  const { p, b, score, volltreffer, chips } = m;
+  const [sending, setSending] = useState(false);
+  const [text, setText] = useState(() => buildPitchText(p, "whatsapp"));
+  const waLink = b.telefon ? `https://wa.me/${waNummer(b.telefon)}?text=${encodeURIComponent(text)}` : "";
+  const mailLink = b.email ? `mailto:${b.email}?subject=${encodeURIComponent(`Ankaufsangebot: ${p.titel || p.objektart}`)}&body=${encodeURIComponent(buildPitchText(p, "email"))}` : "";
+
+  const mark = async (status) => {
+    setSending(true);
+    try { await onMarkStatus(status); } finally { setSending(false); }
+  };
+
+  return (
+    <div className="bm-modal-backdrop" onClick={onClose}>
+      <div className="bm-modal-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="bm-modal-head">
+          <div>
+            <p className="bm-h2">Match bearbeiten</p>
+            <p className="bm-muted bm-small">{volltreffer ? "Volltreffer" : "Guter Match"} · {score} % Übereinstimmung</p>
+          </div>
+          <button className="bm-btn ghost sm" onClick={onClose}>Schließen</button>
+        </div>
+
+        <div className="bm-matchpair">
+          <div className="bm-matchpair-side">
+            <span className="bm-contactcard-role">Objekt</span>
+            <p className="bm-h2" style={{ marginTop: 4 }}>{p.titel || "Ohne Bezeichnung"}</p>
+            <p className="bm-muted bm-small">{p.plz} {p.ort} · {p.kaufpreis ? eur.format(p.kaufpreis) : "—"} · {rendite(p) ? rendite(p).toFixed(1) + " %" : "—"}</p>
+          </div>
+          <div className="bm-matchpair-link">↔</div>
+          <div className="bm-matchpair-side">
+            <span className="bm-contactcard-role">Käufer</span>
+            <p className="bm-h2" style={{ marginTop: 4 }}>{b.name || "Ohne Namen"}</p>
+            <p className="bm-muted bm-small">{b.email}{b.telefon ? " · " + b.telefon : ""}</p>
+          </div>
+        </div>
+
+        <div className="bm-row" style={{ marginTop: 14 }}>
+          <Chip lbl="Budget" v={chips.budget} />
+          <Chip lbl="Region" v={chips.region} />
+          <Chip lbl="Einheiten" v={chips.einheiten} />
+          <Chip lbl="Typ" v={chips.typ} />
+          <Chip lbl="Rendite" v={chips.rend} />
+        </div>
+
+        <label className="bm-f" style={{ marginTop: 18 }}>Nachricht</label>
+        <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} style={{ fontFamily: "inherit", fontSize: 13.5 }} />
+
+        <div className="bm-row" style={{ marginTop: 14 }}>
+          {waLink && <a className="bm-btn primary sm" href={waLink} target="_blank" rel="noopener noreferrer" onClick={() => mark("kontaktiert")}>WhatsApp senden</a>}
+          {mailLink && <a className="bm-btn ghost sm" href={mailLink} onClick={() => mark("kontaktiert")}>E-Mail senden</a>}
+        </div>
+
+        <div className="bm-row" style={{ marginTop: 18, justifyContent: "space-between" }}>
+          <button className="bm-btn ghost sm" disabled={sending} onClick={() => mark("kontaktiert")}>Als kontaktiert markieren</button>
+          <button className="bm-btn primary sm" disabled={sending} onClick={() => mark("erledigt")}>✓ Erledigt — aus Feed entfernen</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   WIEDERVORLAGE-POPUP (öffnet sich automatisch bei überfälligen Terminen)
+   ========================================================================= */
+function FollowUpPopup({ overdue, onClose, onDone, onOpenBuyer }) {
+  return (
+    <div className="bm-modal-backdrop" onClick={onClose}>
+      <div className="bm-modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+        <div className="bm-modal-head">
+          <div>
+            <p className="bm-h2">⏰ Überfällige Wiedervorlagen</p>
+            <p className="bm-muted bm-small">{overdue.length} {overdue.length === 1 ? "Käufer wartet" : "Käufer warten"} auf Rückmeldung</p>
+          </div>
+          <button className="bm-btn ghost sm" onClick={onClose}>Später</button>
+        </div>
+        <div className="bm-send-list" style={{ marginTop: 14 }}>
+          {overdue.map((b) => (
+            <div className="bm-send-row" style={{ cursor: "pointer" }} key={b.id} onClick={() => onOpenBuyer(b)}>
+              <div className="bm-send-info">
+                <span className="bm-send-name">{b.name || "Ohne Namen"}</span>
+                <span className="bm-send-meta">fällig {new Date(b.follow_up).toLocaleDateString("de-DE")}</span>
+              </div>
+              <button className="bm-btn ghost sm" onClick={(e) => { e.stopPropagation(); onDone(b); }}>✓ Erledigt</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
    ÜBERSICHT (DASHBOARD)
    ========================================================================= */
-function Dashboard({ properties, buyers, allMatches, pendingCount, activity, setTab }) {
+function Dashboard({ properties, buyers, allMatches, pendingCount, activity, setTab, onOpenMatch, onOpenBuyer, updBuyer, notify, addActivity }) {
   const neueKaeufer7 = buyers.filter((b) => b.created_at && daysAgo(b.created_at) <= 7).length;
-  const offeneVoll = allMatches.filter((m) => m.volltreffer).length;
-  const feed = allMatches
+  const openMatches = allMatches.filter((m) => m.matchStatus !== "erledigt");
+  const offeneVoll = openMatches.filter((m) => m.volltreffer).length;
+  const feed = openMatches
     .filter((m) => m.score >= 60)
     .sort((a, z) => (z.b.created_at || "").localeCompare(a.b.created_at || "") || z.score - a.score)
     .slice(0, 8);
 
   const today = new Date().toISOString().slice(0, 10);
-  const tasks = buyers
-    .filter((b) => b.follow_up)
-    .sort((a, z) => a.follow_up.localeCompare(z.follow_up))
-    .slice(0, 6);
+  const tasks = buyers.filter((b) => b.follow_up).sort((a, z) => a.follow_up.localeCompare(z.follow_up)).slice(0, 6);
+  const overdueTasks = buyers.filter((b) => b.follow_up && b.follow_up < today);
+
+  const [popupDismissed, setPopupDismissed] = useState(false);
+  const showPopup = overdueTasks.length > 0 && !popupDismissed;
+
+  const completeTask = async (b) => {
+    await updBuyer(b.id, { ...b, follow_up: null });
+    addActivity(`Wiedervorlage „${b.name || "Käufer"}" erledigt`);
+    notify("✓ Wiedervorlage erledigt");
+  };
+
+  const todoCount = pendingCount + overdueTasks.length + offeneVoll;
 
   return (
     <>
+      {showPopup && (
+        <FollowUpPopup
+          overdue={overdueTasks}
+          onClose={() => setPopupDismissed(true)}
+          onDone={completeTask}
+          onOpenBuyer={(b) => { setPopupDismissed(true); onOpenBuyer(b); }}
+        />
+      )}
+
+      {todoCount > 0 && (
+        <div className="bm-heute">
+          <span className="bm-heute-n">{todoCount}</span>
+          <span className="bm-heute-t">{todoCount === 1 ? "Sache wartet auf dich" : "Sachen warten auf dich"} — Prüfung, überfällige Wiedervorlagen und offene Volltreffer</span>
+        </div>
+      )}
+
+      <div className="bm-stats">
+        <button className="bm-stat clickable" onClick={() => setTab("objekte")}><div className="bm-stat-v">{properties.length}</div><div className="bm-stat-l">Objekte im Bestand</div></button>
+        <button className="bm-stat clickable" onClick={() => setTab("kaeufer")}><div className="bm-stat-v">{buyers.length}</div><div className="bm-stat-l">Käufer gesamt</div></button>
+        <button className={"bm-stat clickable" + (offeneVoll > 0 ? " alert" : "")} onClick={() => setTab("matches")}><div className="bm-stat-v">{offeneVoll}</div><div className="bm-stat-l">Offene Volltreffer</div></button>
+        <button className="bm-stat clickable" onClick={() => setTab("kaeufer")}><div className="bm-stat-v">{neueKaeufer7}</div><div className="bm-stat-l">Neue Käufer (7 Tage)</div></button>
+      </div>
+
       {pendingCount > 0 && (
         <div className="bm-alertbar" onClick={() => setTab("pruefung")}>
           <span>{pendingCount} {pendingCount === 1 ? "Objekt wartet" : "Objekte warten"} auf Prüfung</span>
           <span className="bm-alertbar-arrow">→</span>
         </div>
       )}
-      <div className="bm-stats">
-        <div className="bm-stat"><div className="bm-stat-v">{properties.length}</div><div className="bm-stat-l">Objekte im Bestand</div></div>
-        <div className="bm-stat"><div className="bm-stat-v">{buyers.length}</div><div className="bm-stat-l">Käufer gesamt</div></div>
-        <div className="bm-stat"><div className="bm-stat-v">{offeneVoll}</div><div className="bm-stat-l">Offene Volltreffer</div></div>
-        <div className="bm-stat"><div className="bm-stat-v">{neueKaeufer7}</div><div className="bm-stat-l">Neue Käufer (7 Tage)</div></div>
-      </div>
 
       {tasks.length > 0 && (
         <>
-          <div className="bm-h2" style={{ marginBottom: 14 }}>Anstehende Wiedervorlagen</div>
+          <div className="bm-h2" style={{ marginBottom: 14 }}>Wiedervorlagen</div>
           {tasks.map((b) => {
             const overdue = b.follow_up < today;
             return (
-              <div className={"bm-task" + (overdue ? " overdue" : "")} key={b.id} onClick={() => setTab("kaeufer")}>
+              <div className={"bm-task" + (overdue ? " overdue" : "")} key={b.id}>
                 <span className="bm-task-date">{new Date(b.follow_up).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</span>
-                <span className="bm-task-name">{b.name || "Ohne Namen"}</span>
+                <span className="bm-task-name" onClick={() => onOpenBuyer(b)}>{b.name || "Ohne Namen"}</span>
                 <span className="bm-task-tag">{overdue ? "überfällig" : "geplant"}</span>
+                <button className="bm-btn ghost sm" onClick={() => completeTask(b)}>✓</button>
               </div>
             );
           })}
         </>
       )}
 
-      <div className="bm-h2" style={{ marginTop: 24, marginBottom: 14 }}>Neueste Übereinstimmungen</div>
+      <div className="bm-h2" style={{ marginTop: 24, marginBottom: 14 }}>Offene Übereinstimmungen</div>
       {feed.length === 0 ? (
-        <div className="bm-empty">Noch keine relevanten Übereinstimmungen. Sobald Objekte und Käufer zusammenpassen, erscheinen sie hier.</div>
+        <div className="bm-empty">Noch keine offenen Übereinstimmungen. Sobald Objekte und Käufer zusammenpassen, erscheinen sie hier zum Bearbeiten.</div>
       ) : (
-        feed.map((m, i) => (
-          <div className={"bm-feed-item" + (m.volltreffer ? " hit" : "")} key={i}>
-            <ScoreRing score={m.score} size={44} />
-            <div className="bm-feed-info">
-              <div className="bm-feed-title">{m.p.titel || "Ohne Bezeichnung"} <span className="bm-muted">↔</span> {m.b.name || "Ohne Namen"}</div>
-              <div className="bm-feed-sub">{m.p.ort || m.p.plz} · {m.volltreffer ? "Volltreffer" : "Guter Match"}</div>
+        <>
+          <p className="bm-muted bm-small" style={{ marginTop: -6, marginBottom: 12 }}>Anklicken, um Kontakt aufzunehmen oder als erledigt zu markieren.</p>
+          {feed.map((m, i) => (
+            <div className={"bm-feed-item clickable" + (m.volltreffer ? " hit" : "")} key={i} onClick={() => onOpenMatch(m)}>
+              <ScoreRing score={m.score} size={44} />
+              <div className="bm-feed-info">
+                <div className="bm-feed-title">{m.p.titel || "Ohne Bezeichnung"} <span className="bm-muted">↔</span> {m.b.name || "Ohne Namen"}</div>
+                <div className="bm-feed-sub">{m.p.ort || m.p.plz} · {m.volltreffer ? "Volltreffer" : "Guter Match"}{m.matchStatus === "kontaktiert" ? " · kontaktiert" : ""}</div>
+              </div>
+              <span className="bm-feed-arrow">→</span>
             </div>
-            {m.b.created_at && <span className="bm-feed-time">{Math.round(daysAgo(m.b.created_at))} Tg.</span>}
-          </div>
-        ))
+          ))}
+        </>
       )}
 
       {activity && activity.length > 0 && (
@@ -1462,6 +1613,10 @@ export default function BestandsMatch() {
   const loadActivity = async () => {
     try { setActivity(await sbList("activity")); } catch { /* Tabelle evtl. noch nicht angelegt */ }
   };
+  const [matchStatuses, setMatchStatuses] = useState([]);
+  const loadMatchStatuses = async () => {
+    try { setMatchStatuses(await sbList("match_status")); } catch { /* Tabelle evtl. noch nicht angelegt */ }
+  };
 
   const loadAll = async (showSpinner) => {
     if (showSpinner) setSyncing(true);
@@ -1472,6 +1627,7 @@ export default function BestandsMatch() {
     } catch { setError("Verbindung zur Datenbank fehlgeschlagen. Bitte Aktualisieren erneut versuchen."); }
     finally { setLoading(false); if (showSpinner) setSyncing(false); }
     loadActivity();
+    loadMatchStatuses();
   };
 
   useEffect(() => {
@@ -1489,12 +1645,34 @@ export default function BestandsMatch() {
   const matchesFor = (p) => buyers.map((b) => ({ b, ...bewerte(p, b) })).filter((m) => m.score > 0).sort((a, z) => z.score - a.score);
   const liveProperties = properties.filter((p) => p.status !== "ungeprüft");
   const pendingProperties = properties.filter((p) => p.status === "ungeprüft");
+  const matchStatusMap = useMemo(() => {
+    const map = new Map();
+    matchStatuses.forEach((r) => map.set(`${r.objekt_id}_${r.kaeufer_id}`, r.status));
+    return map;
+  }, [matchStatuses]);
   const allMatches = useMemo(() => {
     const out = [];
-    liveProperties.forEach((p) => buyers.forEach((b) => { const m = bewerte(p, b); if (m.score > 0) out.push({ p, b, ...m }); }));
+    liveProperties.forEach((p) => buyers.forEach((b) => {
+      const m = bewerte(p, b);
+      if (m.score > 0) out.push({ p, b, ...m, matchStatus: matchStatusMap.get(`${p.id}_${b.id}`) || "offen" });
+    }));
     return out;
-  }, [liveProperties, buyers]);
-  const totalVoll = allMatches.filter((m) => m.volltreffer).length;
+  }, [liveProperties, buyers, matchStatusMap]);
+  const totalVoll = allMatches.filter((m) => m.volltreffer && m.matchStatus !== "erledigt").length;
+
+  const [matchAction, setMatchAction] = useState(null);
+  const [buyerDetail, setBuyerDetail] = useState(null);
+  const markMatch = async (m, status) => {
+    const saved = await sbUpsert("match_status", { objekt_id: m.p.id, kaeufer_id: m.b.id, status }, "objekt_id,kaeufer_id");
+    setMatchStatuses((prev) => {
+      const idx = prev.findIndex((r) => r.objekt_id === m.p.id && r.kaeufer_id === m.b.id);
+      if (idx >= 0) { const next = [...prev]; next[idx] = saved; return next; }
+      return [...prev, saved];
+    });
+    addActivity(`${m.p.titel || "Objekt"} ↔ ${m.b.name || "Käufer"}: ${status === "erledigt" ? "erledigt" : "kontaktiert"}`);
+    notify(status === "erledigt" ? "✓ Match erledigt" : "✓ Als kontaktiert markiert");
+    if (status === "erledigt") setMatchAction(null);
+  };
 
   return (
     <div className="bm-root">
@@ -1521,7 +1699,7 @@ export default function BestandsMatch() {
             </div>
 
             <div className="bm-body">
-              {tab === "uebersicht" && <Dashboard properties={liveProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} activity={activity} setTab={setTab} />}
+              {tab === "uebersicht" && <Dashboard properties={liveProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} activity={activity} setTab={setTab} onOpenMatch={setMatchAction} onOpenBuyer={setBuyerDetail} updBuyer={updBuyer} notify={notify} addActivity={addActivity} />}
               {tab === "objekte" && <ObjektePanel properties={properties} buyers={buyers} matchesFor={matchesFor} addProp={addProp} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} />}
               {tab === "pruefung" && <PruefungPanel pending={pendingProperties} matchesFor={matchesFor} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} />}
               {tab === "kaeufer" && <KaeuferPanel buyers={buyers} properties={liveProperties} updBuyer={updBuyer} delBuyer={delBuyer} notify={notify} addActivity={addActivity} />}
@@ -1529,6 +1707,25 @@ export default function BestandsMatch() {
             </div>
           </div>
           {toast && <div className="bm-toast">{toast}</div>}
+          {matchAction && (
+            <MatchActionModal
+              m={matchAction}
+              onClose={() => setMatchAction(null)}
+              onMarkStatus={(status) => markMatch(matchAction, status)}
+              notify={notify}
+            />
+          )}
+          {buyerDetail && (
+            <BuyerDetail
+              b={buyerDetail}
+              properties={liveProperties}
+              onClose={() => setBuyerDetail(null)}
+              onSave={async (patch) => { const saved = await updBuyer(buyerDetail.id, { ...buyerDetail, ...patch }); setBuyerDetail(saved); return saved; }}
+              onDelete={() => { if (window.confirm(`„${buyerDetail.name || "Käufer ohne Namen"}" wirklich löschen?`)) { delBuyer(buyerDetail.id); addActivity(`Käufer „${buyerDetail.name || "ohne Namen"}" gelöscht`); notify("✓ Käufer gelöscht"); setBuyerDetail(null); } }}
+              notify={notify}
+              addActivity={addActivity}
+            />
+          )}
         </>
       )}
     </div>

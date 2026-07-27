@@ -228,6 +228,13 @@ const CSS = `
 .bm-tab{ background:none; border:none; color:var(--mute); font-family:var(--sans); font-size:14px; font-weight:600; padding:11px 16px; cursor:pointer; border-bottom:2px solid transparent; display:flex; align-items:center; gap:8px; }
 .bm-tab.on{ color:var(--ink); border-bottom-color:var(--gold); }
 .bm-badge{ background:var(--panel-2); color:var(--gold); border-radius:20px; padding:1px 8px; font-size:11.5px; font-family:var(--sans); }
+.bm-badge.alert{ background:rgba(224,138,111,.16); color:#e6a186; }
+
+.bm-alertbar{ display:flex; align-items:center; justify-content:space-between; padding:13px 18px; border:1px solid var(--gold-line); background:var(--gold-tint); border-radius:10px; margin-bottom:20px; cursor:pointer; font-size:13.5px; color:var(--ink); font-weight:600; }
+.bm-alertbar-arrow{ color:var(--gold); }
+
+.bm-prop-clickable{ cursor:pointer; border-radius:8px; margin:-6px; padding:6px; transition:background .15s; }
+.bm-prop-clickable:hover{ background:var(--panel-2); }
 
 .bm-body{ padding:26px 0 70px; }
 .bm-card{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:14px; }
@@ -372,7 +379,7 @@ const leeresObjekt = {
   titel: "", objektart: OBJEKTARTEN[0], strasse: "", plz: "", ort: "",
   einheiten: "", kaufpreis: "", wohnflaeche: "", jahreskaltmiete: "",
   baujahr: "", zustand: "gepflegt", notiz: "", kurzbeschreibung: "",
-  bilder: [],
+  bilder: [], status: "ungeprüft",
 };
 
 const MAX_BILDER = 8;
@@ -491,7 +498,7 @@ function ObjektForm({ initial, onSave, onCancel, saving }) {
 /* =========================================================================
    ÜBERSICHT (DASHBOARD)
    ========================================================================= */
-function Dashboard({ properties, buyers, allMatches, setTab }) {
+function Dashboard({ properties, buyers, allMatches, pendingCount, setTab }) {
   const neueKaeufer7 = buyers.filter((b) => b.created_at && daysAgo(b.created_at) <= 7).length;
   const offeneVoll = allMatches.filter((m) => m.volltreffer).length;
   const feed = allMatches
@@ -501,6 +508,12 @@ function Dashboard({ properties, buyers, allMatches, setTab }) {
 
   return (
     <>
+      {pendingCount > 0 && (
+        <div className="bm-alertbar" onClick={() => setTab("pruefung")}>
+          <span>{pendingCount} {pendingCount === 1 ? "Objekt wartet" : "Objekte warten"} auf Prüfung</span>
+          <span className="bm-alertbar-arrow">→</span>
+        </div>
+      )}
       <div className="bm-stats">
         <div className="bm-stat"><div className="bm-stat-v">{properties.length}</div><div className="bm-stat-l">Objekte im Bestand</div></div>
         <div className="bm-stat"><div className="bm-stat-v">{buyers.length}</div><div className="bm-stat-l">Käufer gesamt</div></div>
@@ -565,11 +578,15 @@ function SendModal({ p, buyers, matchesFor, channel, onClose }) {
   const emailReady = selectedBuyers.filter((b) => b.email);
 
   const sendBulkEmail = () => {
-    const bcc = emailReady.map((b) => b.email).join(",");
-    window.open(`mailto:?bcc=${encodeURIComponent(bcc)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, "_blank");
+    const addrs = emailReady.map((b) => b.email);
+    const params = `subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+    const url = addrs.length === 1
+      ? `mailto:${addrs[0]}?${params}`
+      : `mailto:?bcc=${addrs.join(",")}&${params}`;
+    window.open(url, "_blank");
   };
   const sendSingleEmail = (b) => {
-    window.open(`mailto:${encodeURIComponent(b.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, "_blank");
+    window.open(`mailto:${b.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, "_blank");
   };
   const sendWhatsapp = (b) => {
     const num = waNummer(b.telefon);
@@ -628,7 +645,7 @@ function SendModal({ p, buyers, matchesFor, channel, onClose }) {
         {channel === "email" ? (
           <button className="bm-btn primary lg" style={{ width: "100%", justifyContent: "center", marginTop: 16 }}
             disabled={emailReady.length === 0} onClick={sendBulkEmail}>
-            Sammel-E-Mail öffnen ({emailReady.length} Empfänger, BCC)
+            E-Mail öffnen ({emailReady.length} Empfänger{emailReady.length > 1 ? ", BCC" : ""})
           </button>
         ) : (
           <p className="bm-muted bm-small" style={{ marginTop: 14 }}>
@@ -686,6 +703,163 @@ function ExposeModal({ p, onClose }) {
 }
 
 
+/* =========================================================================
+   OBJEKT-DETAILSEITE
+   ========================================================================= */
+function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben, onExpose, onSend }) {
+  const r = rendite(p);
+  const ms = matchesFor(p);
+  const pending = p.status === "ungeprüft";
+  return (
+    <div className="bm-expose-overlay">
+      <div className="bm-expose-bar">
+        <button className="bm-btn ghost sm" onClick={onClose}>← Zurück</button>
+        <div className="bm-row">
+          {pending && onFreigeben && <button className="bm-btn primary sm" onClick={onFreigeben}>Freigeben</button>}
+          {onSend && <button className="bm-btn ghost sm" onClick={() => onSend("whatsapp")}>WhatsApp</button>}
+          {onSend && <button className="bm-btn ghost sm" onClick={() => onSend("email")}>E-Mail</button>}
+          {onExpose && <button className="bm-btn ghost sm" onClick={onExpose}>Exposé</button>}
+          {onEdit && <button className="bm-btn ghost sm" onClick={onEdit}>Bearbeiten</button>}
+          {onDelete && <button className="bm-btn ghost sm" onClick={onDelete}>Löschen</button>}
+        </div>
+      </div>
+      <div className="bm-expose" style={{ maxWidth: 820 }}>
+        <div className="bm-row" style={{ justifyContent: "space-between" }}>
+          <span className={"bm-chip" + (pending ? "" : " on")}>{pending ? "Ungeprüft" : "Geprüft · im Listing"}</span>
+        </div>
+        <h1 className="bm-expose-title">{p.titel || "Mehrfamilienhaus"}</h1>
+        <p className="bm-expose-addr">{[p.strasse, [p.plz, p.ort].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "Adresse auf Anfrage"} · {p.objektart}</p>
+
+        {(p.bilder || []).length > 0 && (
+          <div className="bm-expose-imgs">{p.bilder.map((b, i) => <img src={b} alt="" key={i} />)}</div>
+        )}
+
+        {p.kurzbeschreibung && <p className="bm-expose-desc">{p.kurzbeschreibung}</p>}
+
+        <div className="bm-expose-kpis">
+          <div><span>Objektart</span><strong>{p.objektart}</strong></div>
+          <div><span>Wohneinheiten</span><strong>{p.einheiten || "—"}</strong></div>
+          <div><span>Wohnfläche</span><strong>{p.wohnflaeche ? p.wohnflaeche + " m²" : "—"}</strong></div>
+          <div><span>Baujahr</span><strong>{p.baujahr || "—"}</strong></div>
+          <div><span>Kaufpreis</span><strong>{p.kaufpreis ? eur.format(p.kaufpreis) : "—"}</strong></div>
+          <div><span>Jahreskaltmiete</span><strong>{p.jahreskaltmiete ? eur.format(p.jahreskaltmiete) : "—"}</strong></div>
+          <div><span>Bruttorendite</span><strong className="gold">{r ? r.toFixed(2) + " %" : "—"}</strong></div>
+          <div><span>Zustand</span><strong>{p.zustand || "—"}</strong></div>
+        </div>
+
+        {p.notiz && (
+          <div className="bm-card" style={{ marginTop: 22 }}>
+            <p className="bm-h2">Interne Notiz</p>
+            <p className="bm-muted bm-small" style={{ whiteSpace: "pre-wrap" }}>{p.notiz}</p>
+          </div>
+        )}
+
+        <div style={{ marginTop: 30 }}>
+          <p className="bm-h2" style={{ marginBottom: 14 }}>Passende Käufer ({ms.filter((m) => m.score >= 60).length})</p>
+          {ms.length === 0 ? (
+            <p className="bm-muted bm-small">Noch kein passender Käufer in der Datenbank.</p>
+          ) : (
+            ms.map((m) => {
+              const tier = m.volltreffer ? "voll" : m.score >= 60 ? "gut" : "teil";
+              const tierText = m.volltreffer ? "Volltreffer" : m.score >= 60 ? "Guter Match" : "Teilweise";
+              return (
+                <div className={"bm-match-row" + (m.volltreffer ? " hit" : "")} key={m.b.id}>
+                  <div className="bm-row" style={{ gap: 14 }}>
+                    <ScoreRing score={m.score} />
+                    <div>
+                      <p className="bm-h2">{m.b.name || "Ohne Namen"}</p>
+                      <p className="bm-muted bm-small">{m.b.email}{m.b.telefon ? " · " + m.b.telefon : ""}</p>
+                      <span className={"bm-tier " + tier}>{tierText}</span>
+                    </div>
+                  </div>
+                  <div className="bm-row" style={{ marginTop: 12 }}>
+                    <Chip lbl="Budget" v={m.chips.budget} />
+                    <Chip lbl="Region" v={m.chips.region} />
+                    <Chip lbl="Einheiten" v={m.chips.einheiten} />
+                    <Chip lbl="Typ" v={m.chips.typ} />
+                    <Chip lbl="Rendite" v={m.chips.rend} />
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="bm-expose-foot">
+          <span>Angelegt: {p.created_at ? new Date(p.created_at).toLocaleDateString("de-DE") : "—"}</span>
+          <span>{CONFIG.markenName}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   PRÜFUNG (neu angelegte Objekte freigeben oder verwerfen)
+   ========================================================================= */
+function PruefungPanel({ pending, matchesFor, updProp, delProp }) {
+  const [detail, setDetail] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+
+  const freigeben = async (p) => {
+    setBusyId(p.id);
+    try { await updProp(p.id, { ...p, status: "geprüft" }); } finally { setBusyId(null); }
+  };
+  const verwerfen = async (p) => {
+    if (!window.confirm(`„${p.titel || "Objekt ohne Titel"}" wirklich verwerfen und löschen?`)) return;
+    setBusyId(p.id);
+    try { await delProp(p.id); } finally { setBusyId(null); }
+  };
+
+  return (
+    <>
+      <div style={{ marginBottom: 16 }}>
+        <p className="bm-h1">Prüfung</p>
+        <p className="bm-muted bm-small">Neu angelegte Objekte — freigeben, damit sie im Listing und im Matching erscheinen, oder als irrelevant verwerfen.</p>
+      </div>
+
+      {pending.length === 0 ? (
+        <div className="bm-empty">Keine offenen Objekte zur Prüfung. Neu angelegte Objekte erscheinen automatisch hier.</div>
+      ) : (
+        pending.map((p) => (
+          <div className="bm-card" key={p.id}>
+            <div className="bm-between">
+              <div className="bm-prop-card bm-prop-clickable" onClick={() => setDetail(p)}>
+                <span className="bm-prop-thumb">{p.bilder && p.bilder[0] ? <img src={p.bilder[0]} alt="" className="bm-prop-thumb-img" /> : <IconBuilding />}</span>
+                <div className="bm-prop-body">
+                  <p className="bm-h2">{p.titel || "Ohne Bezeichnung"}</p>
+                  <span className="bm-prop-ort"><IconPin />{p.objektart} · {p.strasse ? p.strasse + ", " : ""}{p.plz} {p.ort}</span>
+                </div>
+              </div>
+              <div className="bm-row">
+                <button className="bm-btn primary sm" disabled={busyId === p.id} onClick={() => freigeben(p)}>Freigeben</button>
+                <button className="bm-btn ghost sm" disabled={busyId === p.id} onClick={() => verwerfen(p)}>Verwerfen</button>
+              </div>
+            </div>
+            <div className="bm-kpis">
+              <div className="bm-kpi"><span>Kaufpreis</span><strong>{p.kaufpreis ? eur.format(p.kaufpreis) : "—"}</strong></div>
+              <div className="bm-kpi"><span>Einheiten</span><strong>{p.einheiten || "—"}</strong></div>
+              <div className="bm-kpi"><span>Kaltmiete/J.</span><strong>{p.jahreskaltmiete ? eur.format(p.jahreskaltmiete) : "—"}</strong></div>
+              <div className="bm-kpi"><span>Rendite</span><strong>{rendite(p) ? rendite(p).toFixed(1) + " %" : "—"}</strong></div>
+              <div className="bm-kpi"><span>Baujahr</span><strong>{p.baujahr || "—"}</strong></div>
+            </div>
+          </div>
+        ))
+      )}
+
+      {detail && (
+        <PropertyDetail
+          p={detail}
+          matchesFor={matchesFor}
+          onClose={() => setDetail(null)}
+          onFreigeben={async () => { await freigeben(detail); setDetail(null); }}
+          onDelete={() => { verwerfen(detail); setDetail(null); }}
+        />
+      )}
+    </>
+  );
+}
+
 function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delProp }) {
   const [edit, setEdit] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -693,8 +867,10 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
   const [artFilter, setArtFilter] = useState("Alle");
   const [expose, setExpose] = useState(null);
   const [sendCtx, setSendCtx] = useState(null); // { p, channel }
+  const [detail, setDetail] = useState(null);
 
-  const filtered = properties.filter((p) => {
+  const live = properties.filter((p) => p.status !== "ungeprüft");
+  const filtered = live.filter((p) => {
     if (artFilter !== "Alle" && p.objektart !== artFilter) return false;
     if (!q.trim()) return true;
     const hay = `${p.titel || ""} ${p.ort || ""} ${p.plz || ""}`.toLowerCase();
@@ -715,7 +891,7 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
 
       {edit === "neu" && <ObjektForm saving={saving} onCancel={() => setEdit(null)} onSave={(f) => handleSave(f, null)} />}
 
-      {properties.length > 0 && (
+      {live.length > 0 && (
         <div className="bm-toolbar">
           <div className="bm-search"><IconSearch /><input placeholder="Suche nach Titel, Ort oder PLZ …" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           <div className="bm-filters">
@@ -726,8 +902,8 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
         </div>
       )}
 
-      {properties.length === 0 && edit === null && <div className="bm-empty">Noch keine Objekte. Leg dein erstes Mehrfamilienhaus an.</div>}
-      {properties.length > 0 && filtered.length === 0 && <div className="bm-empty">Kein Objekt passt zu dieser Suche.</div>}
+      {live.length === 0 && edit === null && <div className="bm-empty">Noch keine geprüften Objekte. Neu angelegte Objekte erscheinen zunächst im Reiter „Prüfung".</div>}
+      {live.length > 0 && filtered.length === 0 && <div className="bm-empty">Kein Objekt passt zu dieser Suche.</div>}
 
       {filtered.map((p) =>
         edit === p.id ? (
@@ -735,7 +911,7 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
         ) : (
           <div className="bm-card" key={p.id}>
             <div className="bm-between">
-              <div className="bm-prop-card">
+              <div className="bm-prop-card bm-prop-clickable" onClick={() => setDetail(p)}>
                 <span className="bm-prop-thumb">{p.bilder && p.bilder[0] ? <img src={p.bilder[0]} alt="" className="bm-prop-thumb-img" /> : <IconBuilding />}</span>
                 <div className="bm-prop-body">
                   <p className="bm-h2">{p.titel || "Ohne Bezeichnung"}</p>
@@ -764,6 +940,18 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
       {expose && <ExposeModal p={expose} onClose={() => setExpose(null)} />}
       {sendCtx && (
         <SendModal p={sendCtx.p} buyers={buyers} matchesFor={matchesFor} channel={sendCtx.channel} onClose={() => setSendCtx(null)} />
+      )}
+      {detail && (
+        <PropertyDetail
+          p={detail}
+          matchesFor={matchesFor}
+          onClose={() => setDetail(null)}
+          onEdit={() => { setEdit(detail.id); setDetail(null); }}
+          onDelete={() => { delProp(detail.id); setDetail(null); }}
+          onFreigeben={async () => { const saved = await updProp(detail.id, { ...detail, status: "geprüft" }); setDetail(saved); }}
+          onExpose={() => { setExpose(detail); setDetail(null); }}
+          onSend={(channel) => { setSendCtx({ p: detail, channel }); setDetail(null); }}
+        />
       )}
     </>
   );
@@ -969,15 +1157,17 @@ export default function BestandsMatch() {
   }, []);
 
   const addProp = async (f) => { const clean = { ...f }; delete clean.id; const saved = await sbInsert("objekte", clean); setProperties((prev) => [saved, ...prev]); };
-  const updProp = async (id, f) => { const clean = { ...f }; delete clean.id; const saved = await sbUpdate("objekte", id, clean); setProperties((prev) => prev.map((x) => (x.id === id ? saved : x))); };
+  const updProp = async (id, f) => { const clean = { ...f }; delete clean.id; const saved = await sbUpdate("objekte", id, clean); setProperties((prev) => prev.map((x) => (x.id === id ? saved : x))); return saved; };
   const delProp = async (id) => { await sbDelete("objekte", id); setProperties((prev) => prev.filter((x) => x.id !== id)); };
 
   const matchesFor = (p) => buyers.map((b) => ({ b, ...bewerte(p, b) })).filter((m) => m.score > 0).sort((a, z) => z.score - a.score);
+  const liveProperties = properties.filter((p) => p.status !== "ungeprüft");
+  const pendingProperties = properties.filter((p) => p.status === "ungeprüft");
   const allMatches = useMemo(() => {
     const out = [];
-    properties.forEach((p) => buyers.forEach((b) => { const m = bewerte(p, b); if (m.score > 0) out.push({ p, b, ...m }); }));
+    liveProperties.forEach((p) => buyers.forEach((b) => { const m = bewerte(p, b); if (m.score > 0) out.push({ p, b, ...m }); }));
     return out;
-  }, [properties, buyers]);
+  }, [liveProperties, buyers]);
   const totalVoll = allMatches.filter((m) => m.volltreffer).length;
 
   return (
@@ -998,16 +1188,18 @@ export default function BestandsMatch() {
             {error && <div className="bm-err" style={{ marginTop: 16 }}>{error}</div>}
             <div className="bm-tabs">
               <button className={"bm-tab" + (tab === "uebersicht" ? " on" : "")} onClick={() => setTab("uebersicht")}>Übersicht</button>
-              <button className={"bm-tab" + (tab === "objekte" ? " on" : "")} onClick={() => setTab("objekte")}>Objekte<span className="bm-badge">{properties.length}</span></button>
+              <button className={"bm-tab" + (tab === "objekte" ? " on" : "")} onClick={() => setTab("objekte")}>Objekte<span className="bm-badge">{liveProperties.length}</span></button>
+              <button className={"bm-tab" + (tab === "pruefung" ? " on" : "")} onClick={() => setTab("pruefung")}>Prüfung{pendingProperties.length > 0 && <span className="bm-badge alert">{pendingProperties.length}</span>}</button>
               <button className={"bm-tab" + (tab === "kaeufer" ? " on" : "")} onClick={() => setTab("kaeufer")}>Käufer<span className="bm-badge">{buyers.length}</span></button>
               <button className={"bm-tab" + (tab === "matches" ? " on" : "")} onClick={() => setTab("matches")}>Matches{totalVoll > 0 && <span className="bm-badge">{totalVoll}</span>}</button>
             </div>
 
             <div className="bm-body">
-              {tab === "uebersicht" && <Dashboard properties={properties} buyers={buyers} allMatches={allMatches} setTab={setTab} />}
+              {tab === "uebersicht" && <Dashboard properties={liveProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} setTab={setTab} />}
               {tab === "objekte" && <ObjektePanel properties={properties} buyers={buyers} matchesFor={matchesFor} addProp={addProp} updProp={updProp} delProp={delProp} />}
+              {tab === "pruefung" && <PruefungPanel pending={pendingProperties} matchesFor={matchesFor} updProp={updProp} delProp={delProp} />}
               {tab === "kaeufer" && <KaeuferPanel buyers={buyers} />}
-              {tab === "matches" && <MatchesPanel properties={properties} matchesFor={matchesFor} />}
+              {tab === "matches" && <MatchesPanel properties={liveProperties} matchesFor={matchesFor} />}
             </div>
           </div>
         </>

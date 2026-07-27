@@ -1754,8 +1754,8 @@ export default function BestandsMatch() {
             <div className="bm-tabs">
               <button className={"bm-tab" + (tab === "uebersicht" ? " on" : "")} onClick={() => setTab("uebersicht")}>Übersicht</button>
               <button className={"bm-tab" + (tab === "objekte" ? " on" : "")} onClick={() => setTab("objekte")}>Objekte<span className="bm-badge">{liveProperties.length}</span></button>
-              <button className={"bm-tab" + (tab === "pruefung" ? " on" : "")} onClick={() => setTab("pruefung")}>Prüfung{pendingProperties.length > 0 && <span className="bm-badge alert">{pendingProperties.length}</span>}{neueObjekteHeute > 0 && <span className="bm-badge-round" title={`${neueObjekteHeute} heute neu`}>+{neueObjekteHeute}</span>}</button>
-              <button className={"bm-tab" + (tab === "kaeufer" ? " on" : "")} onClick={() => setTab("kaeufer")}>Käufer<span className="bm-badge">{buyers.length}</span>{neueKaeuferHeute > 0 && <span className="bm-badge-round" title={`${neueKaeuferHeute} heute neu`}>+{neueKaeuferHeute}</span>}</button>
+              <button className={"bm-tab" + (tab === "pruefung" ? " on" : "")} onClick={() => setTab("pruefung")}>Prüfung{pendingProperties.length > 0 && <span className="bm-badge alert">{pendingProperties.length}</span>}</button>
+              <button className={"bm-tab" + (tab === "kaeufer" ? " on" : "")} onClick={() => setTab("kaeufer")}>Käufer<span className="bm-badge">{buyers.length}</span></button>
               <button className={"bm-tab" + (tab === "matches" ? " on" : "")} onClick={() => setTab("matches")}>Matches{totalVoll > 0 && <span className="bm-badge">{totalVoll}</span>}</button>
             </div>
 

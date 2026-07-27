@@ -35,14 +35,14 @@ async function sbInsert(table, row) {
   const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/${table}`, {
     method: "POST", headers: sbHeaders({ Prefer: "return=representation" }), body: JSON.stringify(row),
   });
-  if (!res.ok) throw new Error(`sbInsert ${table} failed`);
+  if (!res.ok) { const t = await res.text().catch(() => ""); throw new Error(t || `sbInsert ${table} failed`); }
   return (await res.json())[0];
 }
 async function sbUpdate(table, id, row) {
   const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/${table}?id=eq.${id}`, {
     method: "PATCH", headers: sbHeaders({ Prefer: "return=representation" }), body: JSON.stringify(row),
   });
-  if (!res.ok) throw new Error(`sbUpdate ${table} failed`);
+  if (!res.ok) { const t = await res.text().catch(() => ""); throw new Error(t || `sbUpdate ${table} failed`); }
   return (await res.json())[0];
 }
 async function sbDelete(table, id) {
@@ -57,6 +57,26 @@ const eur = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR",
 const fmtPct = (n) => `${n.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
 const rendite = (p) => (p.kaufpreis > 0 ? (Number(p.jahreskaltmiete) / Number(p.kaufpreis)) * 100 : 0);
 const daysAgo = (iso) => (Date.now() - new Date(iso).getTime()) / 86400000;
+const relTime = (iso) => {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "gerade eben";
+  if (mins < 60) return `vor ${mins} Min.`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `vor ${hrs} Std.`;
+  return `vor ${Math.round(hrs / 24)} Tg.`;
+};
+
+const OBJEKT_STATUS = ["aktiv", "reserviert", "verkauft"];
+const objektStatusLabel = (s) => (s === "reserviert" ? "Reserviert" : s === "verkauft" ? "Verkauft" : "Aktiv");
+
+/* Kontaktdaten aus einer automatisch importierten Notiz herauslesen (Fallback,
+   falls eine externe Automatisierung sie nicht in die Kontaktfelder schreibt) */
+function parseKontaktFromNotiz(notiz) {
+  if (!notiz) return null;
+  const m = notiz.match(/Kontakt:\s*([^·\n]+)·\s*([^\s·]+@[^\s·]+)\s*·\s*([\d+][\d\s()+-]{5,})/);
+  if (!m) return null;
+  return { name: m[1].trim(), email: m[2].trim(), telefon: m[3].trim() };
+}
 
 /* Kurztext für WhatsApp/E-Mail — Eckdaten + Kurzbeschreibung als Pitch, ohne Bilder */
 function buildPitchText(p, channel = "email") {
@@ -190,6 +210,8 @@ function ScoreRing({ score, size = 54 }) {
    ========================================================================= */
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap');
+html, body{ margin:0; padding:0; background:#121010; }
+#root{ min-height:100vh; }
 .bm-root{
   --bg:#121010; --panel:#1A1715; --panel-2:#211D1A;
   --ink:#EFEBE1; --graphite:#AFA795; --mute:#7E7768;
@@ -242,6 +264,7 @@ const CSS = `
 .bm-contactcard-body{ display:grid; gap:2px; flex:1; min-width:120px; }
 .bm-contactcard-role{ font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); }
 .bm-contactcard-name{ font-family:var(--serif); font-size:15px; font-weight:700; color:var(--ink); }
+.bm-contactcard-sub{ font-size:12px; color:var(--graphite); margin-top:1px; }
 .bm-contactcard-actions{ display:flex; gap:8px; flex-wrap:wrap; }
 .bm-contactcard-actions a{ text-decoration:none; }
 
@@ -296,6 +319,27 @@ const CSS = `
 .bm-feed-sub{ font-size:12px; color:var(--mute); margin-top:2px; }
 .bm-feed-time{ font-size:11px; color:var(--mute); flex:0 0 auto; }
 
+/* Aufgaben / Wiedervorlage */
+.bm-task{ display:flex; align-items:center; gap:14px; padding:12px 16px; border:1px solid var(--line); border-radius:10px; margin-bottom:8px; background:var(--panel-2); cursor:pointer; transition:border-color .15s; }
+.bm-task:hover{ border-color:var(--gold-line); }
+.bm-task.overdue{ border-color:rgba(224,138,111,.4); background:rgba(224,138,111,.06); }
+.bm-task-date{ font-family:var(--fig); font-size:14px; color:var(--gold); flex:0 0 auto; min-width:44px; }
+.bm-task.overdue .bm-task-date{ color:#e08a6f; }
+.bm-task-name{ flex:1; font-size:13.5px; color:var(--ink); font-weight:600; }
+.bm-task-tag{ font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--mute); }
+.bm-task.overdue .bm-task-tag{ color:#e08a6f; }
+
+/* Aktivitäts-Verlauf */
+.bm-activity-item{ display:flex; align-items:center; gap:12px; padding:9px 4px; border-bottom:1px solid var(--line-2); }
+.bm-activity-item:last-child{ border-bottom:none; }
+.bm-activity-dot{ width:6px; height:6px; border-radius:50%; background:var(--gold-soft); flex:0 0 auto; }
+.bm-activity-text{ flex:1; font-size:13px; color:var(--graphite); }
+.bm-activity-time{ font-size:11px; color:var(--mute); flex:0 0 auto; }
+
+/* Toast */
+.bm-toast{ position:fixed; bottom:26px; left:50%; transform:translateX(-50%); background:var(--panel); border:1px solid var(--gold-line); color:var(--ink); font-size:13.5px; font-weight:600; padding:12px 22px; border-radius:30px; box-shadow:0 14px 34px -14px rgba(0,0,0,.7); z-index:100; animation:bmToastIn .25s ease; }
+@keyframes bmToastIn{ from{ opacity:0; transform:translateX(-50%) translateY(10px); } to{ opacity:1; transform:translateX(-50%) translateY(0); } }
+
 /* Suche & Filter */
 .bm-toolbar{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:18px; }
 .bm-search{ position:relative; flex:1; min-width:220px; }
@@ -342,7 +386,7 @@ label.bm-f{ display:block; font-size:11.5px; color:var(--mute); margin-bottom:5p
 .bm-chip.on{ color:var(--ink); border-color:var(--gold-soft); }
 .bm-chip.on::before{ content:"✓"; color:var(--gold); }
 .bm-chip.half{ color:var(--gold-soft); }
-.bm-tier{ font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; }
+.bm-tier{ font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink); }
 .bm-tier.voll{ color:var(--gold-bright); } .bm-tier.gut{ color:var(--gold); } .bm-tier.teil{ color:var(--mute); }
 .bm-ring-num{ font-family:var(--fig); font-size:16px; fill:var(--ink); font-weight:500; }
 
@@ -547,13 +591,19 @@ function ObjektForm({ initial, onSave, onCancel, saving }) {
 /* =========================================================================
    ÜBERSICHT (DASHBOARD)
    ========================================================================= */
-function Dashboard({ properties, buyers, allMatches, pendingCount, setTab }) {
+function Dashboard({ properties, buyers, allMatches, pendingCount, activity, setTab }) {
   const neueKaeufer7 = buyers.filter((b) => b.created_at && daysAgo(b.created_at) <= 7).length;
   const offeneVoll = allMatches.filter((m) => m.volltreffer).length;
   const feed = allMatches
     .filter((m) => m.score >= 60)
     .sort((a, z) => (z.b.created_at || "").localeCompare(a.b.created_at || "") || z.score - a.score)
     .slice(0, 8);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const tasks = buyers
+    .filter((b) => b.follow_up)
+    .sort((a, z) => a.follow_up.localeCompare(z.follow_up))
+    .slice(0, 6);
 
   return (
     <>
@@ -570,7 +620,23 @@ function Dashboard({ properties, buyers, allMatches, pendingCount, setTab }) {
         <div className="bm-stat"><div className="bm-stat-v">{neueKaeufer7}</div><div className="bm-stat-l">Neue Käufer (7 Tage)</div></div>
       </div>
 
-      <div className="bm-h2" style={{ marginBottom: 14 }}>Neueste Übereinstimmungen</div>
+      {tasks.length > 0 && (
+        <>
+          <div className="bm-h2" style={{ marginBottom: 14 }}>Anstehende Wiedervorlagen</div>
+          {tasks.map((b) => {
+            const overdue = b.follow_up < today;
+            return (
+              <div className={"bm-task" + (overdue ? " overdue" : "")} key={b.id} onClick={() => setTab("kaeufer")}>
+                <span className="bm-task-date">{new Date(b.follow_up).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</span>
+                <span className="bm-task-name">{b.name || "Ohne Namen"}</span>
+                <span className="bm-task-tag">{overdue ? "überfällig" : "geplant"}</span>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      <div className="bm-h2" style={{ marginTop: 24, marginBottom: 14 }}>Neueste Übereinstimmungen</div>
       {feed.length === 0 ? (
         <div className="bm-empty">Noch keine relevanten Übereinstimmungen. Sobald Objekte und Käufer zusammenpassen, erscheinen sie hier.</div>
       ) : (
@@ -584,6 +650,19 @@ function Dashboard({ properties, buyers, allMatches, pendingCount, setTab }) {
             {m.b.created_at && <span className="bm-feed-time">{Math.round(daysAgo(m.b.created_at))} Tg.</span>}
           </div>
         ))
+      )}
+
+      {activity && activity.length > 0 && (
+        <>
+          <div className="bm-h2" style={{ marginTop: 24, marginBottom: 14 }}>Letzte Aktivität</div>
+          {activity.slice(0, 8).map((a) => (
+            <div className="bm-activity-item" key={a.id}>
+              <span className="bm-activity-dot" />
+              <span className="bm-activity-text">{a.text}</span>
+              <span className="bm-activity-time">{relTime(a.created_at)}</span>
+            </div>
+          ))}
+        </>
       )}
 
       <div className="bm-row" style={{ marginTop: 20 }}>
@@ -755,10 +834,13 @@ function ExposeModal({ p, onClose }) {
 /* =========================================================================
    OBJEKT-DETAILSEITE
    ========================================================================= */
-function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben, onExpose, onSend }) {
+function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben, onExpose, onSend, onStatusChange, onUebernehmen }) {
   const r = rendite(p);
   const ms = matchesFor(p);
   const pending = p.status === "ungeprüft";
+  const parsed = !p.kontakt_name && !p.kontakt_telefon && !p.kontakt_email ? parseKontaktFromNotiz(p.notiz) : null;
+  const kontakt = parsed || { name: p.kontakt_name, telefon: p.kontakt_telefon, email: p.kontakt_email };
+  const hatKontakt = kontakt.name || kontakt.telefon || kontakt.email;
   return (
     <div className="bm-expose-overlay">
       <div className="bm-expose-bar">
@@ -773,8 +855,13 @@ function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben,
         </div>
       </div>
       <div className="bm-expose" style={{ maxWidth: 820 }}>
-        <div className="bm-row" style={{ justifyContent: "space-between" }}>
-          <span className={"bm-chip" + (pending ? "" : " on")}>{pending ? "Ungeprüft" : "Geprüft · im Listing"}</span>
+        <div className="bm-row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <span className={"bm-chip" + (pending ? "" : " on")}>{pending ? "Ungeprüft" : objektStatusLabel(p.status) + " · im Listing"}</span>
+          {!pending && onStatusChange && (
+            <select value={OBJEKT_STATUS.includes(p.status) ? p.status : "aktiv"} onChange={(e) => onStatusChange(e.target.value)} style={{ width: "auto", minWidth: 160 }}>
+              {OBJEKT_STATUS.map((s) => <option key={s} value={s}>{objektStatusLabel(s)}</option>)}
+            </select>
+          )}
         </div>
         <h1 className="bm-expose-title">{p.titel || "Mehrfamilienhaus"}</h1>
         <p className="bm-expose-addr">{[p.strasse, [p.plz, p.ort].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "Adresse auf Anfrage"} · {p.objektart}</p>
@@ -796,17 +883,23 @@ function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben,
           <div><span>Zustand</span><strong>{p.zustand || "—"}</strong></div>
         </div>
 
-        {(p.kontakt_name || p.kontakt_telefon || p.kontakt_email) && (
+        {hatKontakt && (
           <div className="bm-contactcard">
-            <span className="bm-contactcard-avatar">{(p.kontakt_name || "?").trim().charAt(0).toUpperCase()}</span>
+            <span className="bm-contactcard-avatar">{(kontakt.name || "?").trim().charAt(0).toUpperCase()}</span>
             <div className="bm-contactcard-body">
-              <span className="bm-contactcard-role">Eigentümer-Kontakt</span>
-              <span className="bm-contactcard-name">{p.kontakt_name || "Ohne Namen"}</span>
+              <span className="bm-contactcard-role">Eigentümer-Kontakt{parsed ? " · aus Notiz erkannt" : ""}</span>
+              <span className="bm-contactcard-name">{kontakt.name || "Ohne Namen"}</span>
+              {(kontakt.telefon || kontakt.email) && (
+                <span className="bm-contactcard-sub">{kontakt.telefon}{kontakt.telefon && kontakt.email ? " · " : ""}{kontakt.email}</span>
+              )}
             </div>
             <div className="bm-contactcard-actions">
-              {p.kontakt_telefon && <a className="bm-btn ghost sm" href={`tel:${p.kontakt_telefon.replace(/\s+/g, "")}`}>Anrufen</a>}
-              {p.kontakt_telefon && <a className="bm-btn ghost sm" href={`https://wa.me/${waNummer(p.kontakt_telefon)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
-              {p.kontakt_email && <a className="bm-btn ghost sm" href={`mailto:${p.kontakt_email}`}>E-Mail</a>}
+              {kontakt.telefon && <a className="bm-btn ghost sm" href={`tel:${kontakt.telefon.replace(/\s+/g, "")}`}>Anrufen</a>}
+              {kontakt.telefon && <a className="bm-btn ghost sm" href={`https://wa.me/${waNummer(kontakt.telefon)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
+              {kontakt.email && <a className="bm-btn ghost sm" href={`mailto:${kontakt.email}`}>E-Mail</a>}
+              {parsed && onUebernehmen && (
+                <button className="bm-btn ghost sm" onClick={() => onUebernehmen(parsed)}>In Kontaktfelder übernehmen</button>
+              )}
             </div>
           </div>
         )}
@@ -861,18 +954,18 @@ function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben,
 /* =========================================================================
    PRÜFUNG (neu angelegte Objekte freigeben oder verwerfen)
    ========================================================================= */
-function PruefungPanel({ pending, matchesFor, updProp, delProp }) {
+function PruefungPanel({ pending, matchesFor, updProp, delProp, notify, addActivity }) {
   const [detail, setDetail] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
   const freigeben = async (p) => {
     setBusyId(p.id);
-    try { await updProp(p.id, { ...p, status: "geprüft" }); } finally { setBusyId(null); }
+    try { await updProp(p.id, { ...p, status: "aktiv" }); addActivity(`Objekt „${p.titel || "ohne Titel"}" freigegeben`); notify("✓ Objekt freigegeben"); } finally { setBusyId(null); }
   };
   const verwerfen = async (p) => {
     if (!window.confirm(`„${p.titel || "Objekt ohne Titel"}" wirklich verwerfen und löschen?`)) return;
     setBusyId(p.id);
-    try { await delProp(p.id); } finally { setBusyId(null); }
+    try { await delProp(p.id); addActivity(`Objekt „${p.titel || "ohne Titel"}" verworfen`); notify("✓ Objekt verworfen"); } finally { setBusyId(null); }
   };
 
   return (
@@ -918,13 +1011,18 @@ function PruefungPanel({ pending, matchesFor, updProp, delProp }) {
           onClose={() => setDetail(null)}
           onFreigeben={async () => { await freigeben(detail); setDetail(null); }}
           onDelete={() => { verwerfen(detail); setDetail(null); }}
+          onUebernehmen={async (parsed) => {
+            const saved = await updProp(detail.id, { ...detail, kontakt_name: parsed.name, kontakt_telefon: parsed.telefon, kontakt_email: parsed.email });
+            notify("✓ Kontaktdaten übernommen");
+            setDetail(saved);
+          }}
         />
       )}
     </>
   );
 }
 
-function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delProp }) {
+function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delProp, notify, addActivity }) {
   const [edit, setEdit] = useState(null);
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
@@ -941,9 +1039,19 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
     return hay.includes(q.toLowerCase());
   });
 
+  const [saveErr, setSaveErr] = useState("");
   const handleSave = async (f, id) => {
     setSaving(true);
-    try { if (id) await updProp(id, f); else await addProp(f); setEdit(null); } finally { setSaving(false); }
+    setSaveErr("");
+    try {
+      if (id) { await updProp(id, f); notify("✓ Objekt gespeichert"); }
+      else { await addProp(f); addActivity(`Neues Objekt „${f.titel || "ohne Titel"}" angelegt`); notify("✓ Objekt angelegt · wartet auf Prüfung"); }
+      setEdit(null);
+    } catch (e) {
+      setSaveErr("Speichern fehlgeschlagen: " + (e?.message || "unbekannter Fehler") + ". Prüfe, ob alle Datenbank-Spalten in Supabase angelegt wurden.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -953,6 +1061,7 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
         {edit === null && <button className="bm-btn primary" onClick={() => setEdit("neu")}>+ Objekt anlegen</button>}
       </div>
 
+      {saveErr && <div className="bm-err">{saveErr}</div>}
       {edit === "neu" && <ObjektForm saving={saving} onCancel={() => setEdit(null)} onSave={(f) => handleSave(f, null)} />}
 
       {live.length > 0 && (
@@ -983,13 +1092,21 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
                 </div>
               </div>
               <div className="bm-row" onClick={(e) => e.stopPropagation()}>
+                <span className={"bm-chip on"}>{objektStatusLabel(p.status)}</span>
                 <span className="bm-chip on">{matchesFor(p).filter((m) => m.score >= 60).length} passende Käufer</span>
                 <button className="bm-btn ghost sm" onClick={() => setSendCtx({ p, channel: "whatsapp" })}>WhatsApp</button>
                 <button className="bm-btn ghost sm" onClick={() => setSendCtx({ p, channel: "email" })}>E-Mail</button>
                 <button className="bm-btn ghost sm" onClick={() => setExpose(p)}>Exposé</button>
                 <button className="bm-btn ghost sm" onClick={() => setEdit(p.id)}>Bearbeiten</button>
-                <button className="bm-btn ghost sm" onClick={() => { if (window.confirm(`„${p.titel || "Objekt ohne Titel"}" wirklich unwiderruflich löschen?`)) delProp(p.id); }}>Löschen</button>
+                <button className="bm-btn ghost sm" onClick={() => { if (window.confirm(`„${p.titel || "Objekt ohne Titel"}" wirklich unwiderruflich löschen?`)) { delProp(p.id); addActivity(`Objekt „${p.titel || "ohne Titel"}" gelöscht`); notify("✓ Objekt gelöscht"); } }}>Löschen</button>
               </div>
+            </div>
+            <div className="bm-kpis">
+              <div className="bm-kpi"><span>Kaufpreis</span><strong>{p.kaufpreis ? eur.format(p.kaufpreis) : "—"}</strong></div>
+              <div className="bm-kpi"><span>Einheiten</span><strong>{p.einheiten || "—"}</strong></div>
+              <div className="bm-kpi"><span>Kaltmiete/J.</span><strong>{p.jahreskaltmiete ? eur.format(p.jahreskaltmiete) : "—"}</strong></div>
+              <div className="bm-kpi"><span>Rendite</span><strong>{rendite(p) ? rendite(p).toFixed(1) + " %" : "—"}</strong></div>
+              <div className="bm-kpi"><span>Baujahr</span><strong>{p.baujahr || "—"}</strong></div>
             </div>
           </div>
         )
@@ -1004,10 +1121,16 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
           matchesFor={matchesFor}
           onClose={() => setDetail(null)}
           onEdit={() => { setEdit(detail.id); setDetail(null); }}
-          onDelete={() => { if (window.confirm(`„${detail.titel || "Objekt ohne Titel"}" wirklich unwiderruflich löschen?`)) { delProp(detail.id); setDetail(null); } }}
-          onFreigeben={async () => { const saved = await updProp(detail.id, { ...detail, status: "geprüft" }); setDetail(saved); }}
+          onDelete={() => { if (window.confirm(`„${detail.titel || "Objekt ohne Titel"}" wirklich unwiderruflich löschen?`)) { delProp(detail.id); addActivity(`Objekt „${detail.titel || "ohne Titel"}" gelöscht`); notify("✓ Objekt gelöscht"); setDetail(null); } }}
+          onFreigeben={async () => { const saved = await updProp(detail.id, { ...detail, status: "aktiv" }); addActivity(`Objekt „${detail.titel || "ohne Titel"}" freigegeben`); notify("✓ Objekt freigegeben"); setDetail(saved); }}
           onExpose={() => { setExpose(detail); setDetail(null); }}
           onSend={(channel) => { setSendCtx({ p: detail, channel }); setDetail(null); }}
+          onStatusChange={async (status) => { const saved = await updProp(detail.id, { ...detail, status }); notify(`✓ Status: ${objektStatusLabel(status)}`); setDetail(saved); }}
+          onUebernehmen={async (parsed) => {
+            const saved = await updProp(detail.id, { ...detail, kontakt_name: parsed.name, kontakt_telefon: parsed.telefon, kontakt_email: parsed.email });
+            notify("✓ Kontaktdaten übernommen");
+            setDetail(saved);
+          }}
         />
       )}
     </>
@@ -1017,9 +1140,13 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
 /* =========================================================================
    KÄUFER
    ========================================================================= */
-function KaeuferPanel({ buyers }) {
+const KAEUFER_STATUS = ["neu", "kontaktiert", "in gespräch", "abgeschlossen", "kein interesse"];
+const statusTon = (s) => (s === "abgeschlossen" ? "voll" : s === "kein interesse" ? "" : s === "in gespräch" ? "gut" : s === "kontaktiert" ? "gut" : "teil");
+
+function KaeuferPanel({ buyers, properties, updBuyer, delBuyer, notify, addActivity }) {
   const [q, setQ] = useState("");
   const [artFilter, setArtFilter] = useState("Alle");
+  const [detail, setDetail] = useState(null);
 
   const filtered = buyers.filter((b) => {
     if (artFilter !== "Alle" && !(Array.isArray(b.objektarten) && b.objektarten.includes(artFilter))) return false;
@@ -1050,7 +1177,7 @@ function KaeuferPanel({ buyers }) {
       {buyers.length > 0 && filtered.length === 0 && <div className="bm-empty">Kein Käufer passt zu dieser Suche.</div>}
 
       {filtered.map((b) => (
-        <div className="bm-card" key={b.id}>
+        <div className="bm-card clickable" key={b.id} onClick={() => setDetail(b)}>
           <div className="bm-between">
             <div className="bm-buyer-card">
               <span className="bm-buyer-avatar">{(b.name || "?").trim().charAt(0).toUpperCase()}</span>
@@ -1059,7 +1186,10 @@ function KaeuferPanel({ buyers }) {
                 <span className="bm-muted bm-small">{b.email}{b.telefon ? " · " + b.telefon : ""}{b.rolle ? " · " + b.rolle : ""}</span>
               </div>
             </div>
-            <span className="bm-muted bm-small">{b.created_at ? new Date(b.created_at).toLocaleDateString("de-DE") : ""}</span>
+            <div className="bm-row" style={{ gap: 8 }}>
+              <span className={"bm-tier " + statusTon(b.status)}>{b.status || "neu"}</span>
+              <span className="bm-muted bm-small">{b.created_at ? new Date(b.created_at).toLocaleDateString("de-DE") : ""}</span>
+            </div>
           </div>
           <div className="bm-kpis">
             <div className="bm-kpi"><span>Budget</span><strong>{b.budget_min ? eur.format(b.budget_min) : "0"} – {b.budget_max ? eur.format(b.budget_max) : "offen"}</strong></div>
@@ -1074,7 +1204,125 @@ function KaeuferPanel({ buyers }) {
           </div>
         </div>
       ))}
+      {detail && (
+        <BuyerDetail
+          b={detail}
+          properties={properties}
+          onClose={() => setDetail(null)}
+          onSave={async (patch) => { const saved = await updBuyer(detail.id, { ...detail, ...patch }); setDetail(saved); return saved; }}
+          onDelete={() => { if (window.confirm(`„${detail.name || "Käufer ohne Namen"}" wirklich löschen?`)) { delBuyer(detail.id); addActivity(`Käufer „${detail.name || "ohne Namen"}" gelöscht`); notify("✓ Käufer gelöscht"); setDetail(null); } }}
+          notify={notify}
+          addActivity={addActivity}
+        />
+      )}
     </>
+  );
+}
+
+/* =========================================================================
+   KÄUFER-DETAILSEITE (Status, Notiz, passende Objekte)
+   ========================================================================= */
+function BuyerDetail({ b, properties, onClose, onSave, onDelete, notify, addActivity }) {
+  const [notiz, setNotiz] = useState(b.notiz || "");
+  const [savingNotiz, setSavingNotiz] = useState(false);
+  const dirty = notiz !== (b.notiz || "");
+
+  const matches = properties
+    .map((p) => ({ p, ...bewerte(p, b) }))
+    .filter((m) => m.score > 0)
+    .sort((a, z) => z.score - a.score);
+
+  const subject = `Re: Ihr Ankaufsprofil bei ${CONFIG.markenName}`;
+  const waLink = b.telefon ? `https://wa.me/${waNummer(b.telefon)}` : "";
+  const mailLink = b.email ? `mailto:${b.email}?subject=${encodeURIComponent(subject)}` : "";
+
+  return (
+    <div className="bm-expose-overlay">
+      <div className="bm-expose-bar">
+        <button className="bm-btn ghost sm" onClick={onClose}>← Zurück</button>
+        <div className="bm-row">
+          {waLink && <a className="bm-btn ghost sm" href={waLink} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
+          {mailLink && <a className="bm-btn ghost sm" href={mailLink}>E-Mail</a>}
+          <button className="bm-btn ghost sm" onClick={onDelete}>Löschen</button>
+        </div>
+      </div>
+      <div className="bm-expose" style={{ maxWidth: 780 }}>
+        <div className="bm-row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
+          <div className="bm-buyer-card">
+            <span className="bm-buyer-avatar" style={{ width: 52, height: 52, fontSize: 19 }}>{(b.name || "?").trim().charAt(0).toUpperCase()}</span>
+            <div>
+              <h1 className="bm-expose-title" style={{ fontSize: 26, margin: 0 }}>{b.name || "Ohne Namen"}</h1>
+              <p className="bm-expose-addr" style={{ margin: "6px 0 0" }}>{b.email}{b.telefon ? " · " + b.telefon : ""}{b.rolle ? " · " + b.rolle : ""}</p>
+            </div>
+          </div>
+          <div className="bm-row" style={{ gap: 20, flexWrap: "wrap" }}>
+            <div>
+              <label className="bm-f">Status</label>
+              <select value={b.status || "neu"} onChange={async (e) => { await onSave({ status: e.target.value }); addActivity(`Käufer „${b.name || "ohne Namen"}" → ${e.target.value}`); notify(`✓ Status: ${e.target.value}`); }} style={{ minWidth: 170 }}>
+                {KAEUFER_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="bm-f">Wiedervorlage</label>
+              <input type="date" value={b.follow_up || ""} onChange={async (e) => { await onSave({ follow_up: e.target.value || null }); notify("✓ Wiedervorlage gesetzt"); }} style={{ minWidth: 150 }} />
+            </div>
+          </div>
+        </div>
+
+        <div className="bm-expose-kpis" style={{ marginTop: 24 }}>
+          <div><span>Budget</span><strong>{b.budget_min ? eur.format(b.budget_min) : "0"} – {b.budget_max ? eur.format(b.budget_max) : "offen"}</strong></div>
+          <div><span>Einheiten ab</span><strong>{b.einheiten_min || "—"}</strong></div>
+          <div><span>Min. Rendite</span><strong>{b.min_rendite ? b.min_rendite + " %" : "—"}</strong></div>
+          <div><span>Regionen</span><strong style={{ fontSize: 13 }}>{b.regionen || b.region_label || "bundesweit"}</strong></div>
+        </div>
+
+        <div className="bm-buyer-tags" style={{ marginTop: 16 }}>
+          {(b.objektarten || []).map((a) => <span className="bm-tag" key={a}>{a}</span>)}
+          {b.bereitschaft && <span className="bm-tag">{b.bereitschaft}</span>}
+          {b.verkauf && b.verkauf !== "Nein" && <span className="bm-tag" style={{ color: "var(--gold)", borderColor: "var(--gold-line)" }}>Eigener Verkauf: {b.verkauf}</span>}
+        </div>
+
+        <div className="bm-card" style={{ marginTop: 22 }}>
+          <p className="bm-h2">Interne Notiz</p>
+          <textarea rows={4} value={notiz} onChange={(e) => setNotiz(e.target.value)} placeholder="Gesprächsnotizen, Rückrufe, Vereinbarungen …" />
+          {dirty && (
+            <button className="bm-btn primary sm" style={{ marginTop: 10 }} disabled={savingNotiz}
+              onClick={async () => { setSavingNotiz(true); await onSave({ notiz }); notify("✓ Notiz gespeichert"); setSavingNotiz(false); }}>
+              {savingNotiz ? "Speichert …" : "Notiz speichern"}
+            </button>
+          )}
+        </div>
+
+        <div style={{ marginTop: 30 }}>
+          <p className="bm-h2" style={{ marginBottom: 14 }}>Passende Objekte ({matches.filter((m) => m.score >= 60).length})</p>
+          {matches.length === 0 ? (
+            <p className="bm-muted bm-small">Noch kein passendes Objekt im geprüften Bestand.</p>
+          ) : (
+            matches.map((m) => {
+              const tier = m.volltreffer ? "voll" : m.score >= 60 ? "gut" : "teil";
+              const tierText = m.volltreffer ? "Volltreffer" : m.score >= 60 ? "Guter Match" : "Teilweise";
+              return (
+                <div className={"bm-match-row" + (m.volltreffer ? " hit" : "")} key={m.p.id}>
+                  <div className="bm-row" style={{ gap: 14 }}>
+                    <ScoreRing score={m.score} />
+                    <div>
+                      <p className="bm-h2">{m.p.titel || "Ohne Bezeichnung"}</p>
+                      <p className="bm-muted bm-small">{m.p.plz} {m.p.ort} · {m.p.kaufpreis ? eur.format(m.p.kaufpreis) : "—"}</p>
+                      <span className={"bm-tier " + tier}>{tierText}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="bm-expose-foot">
+          <span>Eingegangen: {b.created_at ? new Date(b.created_at).toLocaleDateString("de-DE") : "—"}</span>
+          <span>{CONFIG.markenName}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1192,10 +1440,28 @@ export default function BestandsMatch() {
   const [authed, setAuthed] = useState(false);
   const [properties, setProperties] = useState([]);
   const [buyers, setBuyers] = useState([]);
+  const [activity, setActivity] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState("uebersicht");
+  const [toast, setToast] = useState("");
+
+  const notify = (msg) => setToast(msg);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const addActivity = async (text) => {
+    const temp = { id: "tmp" + Date.now(), text, created_at: new Date().toISOString() };
+    setActivity((prev) => [temp, ...prev].slice(0, 30));
+    try { await sbInsert("activity", { text }); } catch { /* Tabelle evtl. noch nicht angelegt — Log bleibt lokal */ }
+  };
+  const loadActivity = async () => {
+    try { setActivity(await sbList("activity")); } catch { /* Tabelle evtl. noch nicht angelegt */ }
+  };
 
   const loadAll = async (showSpinner) => {
     if (showSpinner) setSyncing(true);
@@ -1205,6 +1471,7 @@ export default function BestandsMatch() {
       setProperties(props); setBuyers(buys);
     } catch { setError("Verbindung zur Datenbank fehlgeschlagen. Bitte Aktualisieren erneut versuchen."); }
     finally { setLoading(false); if (showSpinner) setSyncing(false); }
+    loadActivity();
   };
 
   useEffect(() => {
@@ -1216,6 +1483,8 @@ export default function BestandsMatch() {
   const addProp = async (f) => { const clean = { ...f }; delete clean.id; const saved = await sbInsert("objekte", clean); setProperties((prev) => [saved, ...prev]); };
   const updProp = async (id, f) => { const clean = { ...f }; delete clean.id; const saved = await sbUpdate("objekte", id, clean); setProperties((prev) => prev.map((x) => (x.id === id ? saved : x))); return saved; };
   const delProp = async (id) => { await sbDelete("objekte", id); setProperties((prev) => prev.filter((x) => x.id !== id)); };
+  const updBuyer = async (id, f) => { const clean = { ...f }; delete clean.id; const saved = await sbUpdate("kaeufer", id, clean); setBuyers((prev) => prev.map((x) => (x.id === id ? saved : x))); return saved; };
+  const delBuyer = async (id) => { await sbDelete("kaeufer", id); setBuyers((prev) => prev.filter((x) => x.id !== id)); };
 
   const matchesFor = (p) => buyers.map((b) => ({ b, ...bewerte(p, b) })).filter((m) => m.score > 0).sort((a, z) => z.score - a.score);
   const liveProperties = properties.filter((p) => p.status !== "ungeprüft");
@@ -1252,13 +1521,14 @@ export default function BestandsMatch() {
             </div>
 
             <div className="bm-body">
-              {tab === "uebersicht" && <Dashboard properties={liveProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} setTab={setTab} />}
-              {tab === "objekte" && <ObjektePanel properties={properties} buyers={buyers} matchesFor={matchesFor} addProp={addProp} updProp={updProp} delProp={delProp} />}
-              {tab === "pruefung" && <PruefungPanel pending={pendingProperties} matchesFor={matchesFor} updProp={updProp} delProp={delProp} />}
-              {tab === "kaeufer" && <KaeuferPanel buyers={buyers} />}
+              {tab === "uebersicht" && <Dashboard properties={liveProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} activity={activity} setTab={setTab} />}
+              {tab === "objekte" && <ObjektePanel properties={properties} buyers={buyers} matchesFor={matchesFor} addProp={addProp} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} />}
+              {tab === "pruefung" && <PruefungPanel pending={pendingProperties} matchesFor={matchesFor} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} />}
+              {tab === "kaeufer" && <KaeuferPanel buyers={buyers} properties={liveProperties} updBuyer={updBuyer} delBuyer={delBuyer} notify={notify} addActivity={addActivity} />}
               {tab === "matches" && <MatchesPanel properties={liveProperties} matchesFor={matchesFor} />}
             </div>
           </div>
+          {toast && <div className="bm-toast">{toast}</div>}
         </>
       )}
     </div>

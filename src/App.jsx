@@ -236,6 +236,46 @@ const CSS = `
 .bm-prop-clickable{ cursor:pointer; border-radius:8px; margin:-6px; padding:6px; transition:background .15s; }
 .bm-prop-clickable:hover{ background:var(--panel-2); }
 
+/* Eigentümer-Kontaktkarte (CRM-Stil) */
+.bm-contactcard{ display:flex; align-items:center; gap:14px; padding:16px 18px; margin-top:26px; border:1px solid var(--gold-line); border-radius:12px; background:linear-gradient(135deg, var(--gold-tint), transparent); flex-wrap:wrap; }
+.bm-contactcard-avatar{ width:44px; height:44px; border-radius:50%; background:var(--panel-2); border:1px solid var(--gold-line); display:flex; align-items:center; justify-content:center; font-family:var(--fig); font-size:16px; color:var(--gold); flex:0 0 auto; }
+.bm-contactcard-body{ display:grid; gap:2px; flex:1; min-width:120px; }
+.bm-contactcard-role{ font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); }
+.bm-contactcard-name{ font-family:var(--serif); font-size:15px; font-weight:700; color:var(--ink); }
+.bm-contactcard-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+.bm-contactcard-actions a{ text-decoration:none; }
+
+/* Karten klickbar & smooth */
+.bm-card.clickable{ cursor:pointer; transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.bm-card.clickable:hover{ border-color:var(--gold-line); transform:translateY(-2px); box-shadow:0 14px 30px -18px rgba(0,0,0,.55); }
+.bm-card.clickable:active{ transform:translateY(0); }
+.bm-btn{ transition:all .16s ease; }
+.bm-btn:active{ transform:scale(.96); }
+.bm-fchip{ transition:all .16s ease; }
+.bm-tab{ transition:color .16s ease; }
+.bm-send-row{ transition:all .16s ease; }
+.bm-feed-item{ transition:transform .16s ease; }
+
+/* Mobile-Anpassungen */
+@media(max-width:700px){
+  .bm-stats{ grid-template-columns:repeat(2,1fr); }
+  .bm-between{ flex-direction:column; align-items:stretch; }
+  .bm-between .bm-row{ margin-top: 10px; }
+  .bm-tabs{ overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; padding-bottom:2px; }
+  .bm-tab{ flex:0 0 auto; white-space:nowrap; padding:11px 12px; }
+  .bm-topbar{ padding:14px 16px; flex-wrap:wrap; gap:8px; }
+  .bm-wrap{ padding:0 14px; }
+  .bm-modal-panel{ padding:18px; max-height:92vh; }
+  .bm-expose{ padding:26px 18px 60px; }
+  .bm-expose-bar{ flex-wrap:wrap; gap:10px; padding:12px 16px; }
+  .bm-contactcard{ flex-direction:column; align-items:flex-start; }
+  .bm-contactcard-actions{ width:100%; }
+  .bm-send-row{ flex-wrap:wrap; }
+}
+@media(max-width:420px){
+  .bm-stats{ grid-template-columns:1fr; }
+}
+
 .bm-body{ padding:26px 0 70px; }
 .bm-card{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:14px; }
 .bm-empty{ text-align:center; color:var(--mute); padding:50px 20px; border:1px dashed var(--line); border-radius:12px; font-size:14px; }
@@ -380,6 +420,7 @@ const leeresObjekt = {
   einheiten: "", kaufpreis: "", wohnflaeche: "", jahreskaltmiete: "",
   baujahr: "", zustand: "gepflegt", notiz: "", kurzbeschreibung: "",
   bilder: [], status: "ungeprüft",
+  kontakt_name: "", kontakt_telefon: "", kontakt_email: "",
 };
 
 const MAX_BILDER = 8;
@@ -485,6 +526,14 @@ function ObjektForm({ initial, onSave, onCancel, saving }) {
       </div>
       <div style={{ marginTop: 4 }}>
         <BilderUpload bilder={f.bilder || []} onChange={(v) => setF({ ...f, bilder: v })} />
+      </div>
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+        <label className="bm-f">Eigentümer-Kontakt (intern, nicht im Exposé)</label>
+        <div className="bm-grid bm-cols3">
+          <input value={f.kontakt_name} onChange={set("kontakt_name")} placeholder="Name" />
+          <input value={f.kontakt_telefon} onChange={set("kontakt_telefon")} placeholder="Telefon" />
+          <input value={f.kontakt_email} onChange={set("kontakt_email")} placeholder="E-Mail" />
+        </div>
       </div>
       <div style={{ marginTop: 12 }}><label className="bm-f">Notiz (intern, nicht im Exposé)</label><textarea rows={2} value={f.notiz} onChange={set("notiz")} /></div>
       <div className="bm-row" style={{ marginTop: 16 }}>
@@ -747,8 +796,23 @@ function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben,
           <div><span>Zustand</span><strong>{p.zustand || "—"}</strong></div>
         </div>
 
+        {(p.kontakt_name || p.kontakt_telefon || p.kontakt_email) && (
+          <div className="bm-contactcard">
+            <span className="bm-contactcard-avatar">{(p.kontakt_name || "?").trim().charAt(0).toUpperCase()}</span>
+            <div className="bm-contactcard-body">
+              <span className="bm-contactcard-role">Eigentümer-Kontakt</span>
+              <span className="bm-contactcard-name">{p.kontakt_name || "Ohne Namen"}</span>
+            </div>
+            <div className="bm-contactcard-actions">
+              {p.kontakt_telefon && <a className="bm-btn ghost sm" href={`tel:${p.kontakt_telefon.replace(/\s+/g, "")}`}>Anrufen</a>}
+              {p.kontakt_telefon && <a className="bm-btn ghost sm" href={`https://wa.me/${waNummer(p.kontakt_telefon)}`} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
+              {p.kontakt_email && <a className="bm-btn ghost sm" href={`mailto:${p.kontakt_email}`}>E-Mail</a>}
+            </div>
+          </div>
+        )}
+
         {p.notiz && (
-          <div className="bm-card" style={{ marginTop: 22 }}>
+          <div className="bm-card" style={{ marginTop: 14 }}>
             <p className="bm-h2">Interne Notiz</p>
             <p className="bm-muted bm-small" style={{ whiteSpace: "pre-wrap" }}>{p.notiz}</p>
           </div>
@@ -822,16 +886,16 @@ function PruefungPanel({ pending, matchesFor, updProp, delProp }) {
         <div className="bm-empty">Keine offenen Objekte zur Prüfung. Neu angelegte Objekte erscheinen automatisch hier.</div>
       ) : (
         pending.map((p) => (
-          <div className="bm-card" key={p.id}>
+          <div className="bm-card clickable" key={p.id} onClick={() => setDetail(p)}>
             <div className="bm-between">
-              <div className="bm-prop-card bm-prop-clickable" onClick={() => setDetail(p)}>
+              <div className="bm-prop-card">
                 <span className="bm-prop-thumb">{p.bilder && p.bilder[0] ? <img src={p.bilder[0]} alt="" className="bm-prop-thumb-img" /> : <IconBuilding />}</span>
                 <div className="bm-prop-body">
                   <p className="bm-h2">{p.titel || "Ohne Bezeichnung"}</p>
                   <span className="bm-prop-ort"><IconPin />{p.objektart} · {p.strasse ? p.strasse + ", " : ""}{p.plz} {p.ort}</span>
                 </div>
               </div>
-              <div className="bm-row">
+              <div className="bm-row" onClick={(e) => e.stopPropagation()}>
                 <button className="bm-btn primary sm" disabled={busyId === p.id} onClick={() => freigeben(p)}>Freigeben</button>
                 <button className="bm-btn ghost sm" disabled={busyId === p.id} onClick={() => verwerfen(p)}>Verwerfen</button>
               </div>
@@ -909,30 +973,23 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
         edit === p.id ? (
           <ObjektForm key={p.id} initial={p} saving={saving} onCancel={() => setEdit(null)} onSave={(f) => handleSave(f, p.id)} />
         ) : (
-          <div className="bm-card" key={p.id}>
+          <div className="bm-card clickable" key={p.id} onClick={() => setDetail(p)}>
             <div className="bm-between">
-              <div className="bm-prop-card bm-prop-clickable" onClick={() => setDetail(p)}>
+              <div className="bm-prop-card">
                 <span className="bm-prop-thumb">{p.bilder && p.bilder[0] ? <img src={p.bilder[0]} alt="" className="bm-prop-thumb-img" /> : <IconBuilding />}</span>
                 <div className="bm-prop-body">
                   <p className="bm-h2">{p.titel || "Ohne Bezeichnung"}</p>
                   <span className="bm-prop-ort"><IconPin />{p.objektart} · {p.strasse ? p.strasse + ", " : ""}{p.plz} {p.ort}</span>
                 </div>
               </div>
-              <div className="bm-row">
+              <div className="bm-row" onClick={(e) => e.stopPropagation()}>
                 <span className="bm-chip on">{matchesFor(p).filter((m) => m.score >= 60).length} passende Käufer</span>
                 <button className="bm-btn ghost sm" onClick={() => setSendCtx({ p, channel: "whatsapp" })}>WhatsApp</button>
                 <button className="bm-btn ghost sm" onClick={() => setSendCtx({ p, channel: "email" })}>E-Mail</button>
                 <button className="bm-btn ghost sm" onClick={() => setExpose(p)}>Exposé</button>
                 <button className="bm-btn ghost sm" onClick={() => setEdit(p.id)}>Bearbeiten</button>
-                <button className="bm-btn ghost sm" onClick={() => delProp(p.id)}>Löschen</button>
+                <button className="bm-btn ghost sm" onClick={() => { if (window.confirm(`„${p.titel || "Objekt ohne Titel"}" wirklich unwiderruflich löschen?`)) delProp(p.id); }}>Löschen</button>
               </div>
-            </div>
-            <div className="bm-kpis">
-              <div className="bm-kpi"><span>Kaufpreis</span><strong>{p.kaufpreis ? eur.format(p.kaufpreis) : "—"}</strong></div>
-              <div className="bm-kpi"><span>Einheiten</span><strong>{p.einheiten || "—"}</strong></div>
-              <div className="bm-kpi"><span>Kaltmiete/J.</span><strong>{p.jahreskaltmiete ? eur.format(p.jahreskaltmiete) : "—"}</strong></div>
-              <div className="bm-kpi"><span>Rendite</span><strong>{rendite(p) ? rendite(p).toFixed(1) + " %" : "—"}</strong></div>
-              <div className="bm-kpi"><span>Baujahr</span><strong>{p.baujahr || "—"}</strong></div>
             </div>
           </div>
         )
@@ -947,7 +1004,7 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
           matchesFor={matchesFor}
           onClose={() => setDetail(null)}
           onEdit={() => { setEdit(detail.id); setDetail(null); }}
-          onDelete={() => { delProp(detail.id); setDetail(null); }}
+          onDelete={() => { if (window.confirm(`„${detail.titel || "Objekt ohne Titel"}" wirklich unwiderruflich löschen?`)) { delProp(detail.id); setDetail(null); } }}
           onFreigeben={async () => { const saved = await updProp(detail.id, { ...detail, status: "geprüft" }); setDetail(saved); }}
           onExpose={() => { setExpose(detail); setDetail(null); }}
           onSend={(channel) => { setSendCtx({ p: detail, channel }); setDetail(null); }}

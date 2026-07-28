@@ -20,7 +20,13 @@ const OBJEKTARTEN = [
    SUPABASE AUTH — echter Login statt Passwort-String
    ========================================================================= */
 let CURRENT_TOKEN = null;
+let CURRENT_REFRESH = null;
 const setAuthToken = (token) => { CURRENT_TOKEN = token; };
+const setSession = (access, refresh) => {
+  CURRENT_TOKEN = access;
+  CURRENT_REFRESH = refresh;
+  try { localStorage.setItem("bm_session", JSON.stringify({ refresh_token: refresh })); } catch { /* ignore */ }
+};
 async function sbSignIn(email, password) {
   const res = await fetch(`${CONFIG.supabaseUrl}/auth/v1/token?grant_type=password`, {
     method: "POST",
@@ -41,6 +47,7 @@ async function sbRefresh(refresh_token) {
 }
 function sbSignOut() {
   setAuthToken(null);
+  CURRENT_REFRESH = null;
   try { localStorage.removeItem("bm_session"); } catch { /* ignore */ }
 }
 
@@ -75,6 +82,12 @@ async function sbUpdate(table, id, row) {
 async function sbDelete(table, id) {
   const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/${table}?id=eq.${id}`, { method: "DELETE", headers: sbHeaders() });
   if (!res.ok) throw new Error(`sbDelete ${table} failed`);
+}
+/* Aufräum-Helfer: löscht alle Zeilen, deren Spalte einem Wert entspricht — best effort,
+   z. B. um verwaiste match_status-Einträge nach dem Löschen eines Objekts/Käufers zu entfernen. */
+async function sbDeleteWhere(table, column, value) {
+  try { await fetch(`${CONFIG.supabaseUrl}/rest/v1/${table}?${column}=eq.${value}`, { method: "DELETE", headers: sbHeaders() }); }
+  catch { /* best effort — kein harter Fehler, falls Tabelle fehlt oder Aufruf scheitert */ }
 }
 async function sbUpsert(table, row, conflictCols) {
   const res = await fetch(`${CONFIG.supabaseUrl}/rest/v1/${table}?on_conflict=${conflictCols}`, {
@@ -1120,7 +1133,9 @@ function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben,
 
         <div style={{ marginTop: 30 }}>
           <p className="bm-h2" style={{ marginBottom: 14 }}>Passende Käufer ({ms.filter((m) => m.score >= 60).length})</p>
-          {ms.length === 0 ? (
+          {p.status === "verkauft" ? (
+            <p className="bm-muted bm-small">Objekt ist verkauft — kein aktives Matching mehr.</p>
+          ) : ms.length === 0 ? (
             <p className="bm-muted bm-small">Noch kein passender Käufer in der Datenbank.</p>
           ) : (
             ms.map((m) => {
@@ -1238,6 +1253,7 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
   const [artFilter, setArtFilter] = useState("Alle");
+  const [statusFilter, setStatusFilter] = useState("Alle");
   const [expose, setExpose] = useState(null);
   const [sendCtx, setSendCtx] = useState(null); // { p, channel }
   const [detail, setDetail] = useState(null);
@@ -1245,6 +1261,7 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
   const live = properties.filter((p) => p.status !== "ungeprüft");
   const filtered = live.filter((p) => {
     if (artFilter !== "Alle" && p.objektart !== artFilter) return false;
+    if (statusFilter !== "Alle" && objektStatusLabel(p.status) !== statusFilter) return false;
     if (!q.trim()) return true;
     const hay = `${p.titel || ""} ${p.ort || ""} ${p.plz || ""}`.toLowerCase();
     return hay.includes(q.toLowerCase());
@@ -1285,6 +1302,13 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
           </div>
         </div>
       )}
+      {live.length > 0 && (
+        <div className="bm-filters" style={{ marginBottom: 18, marginTop: -8 }}>
+          {["Alle", "Aktiv", "Reserviert", "Verkauft"].map((s) => (
+            <button key={s} className={"bm-fchip" + (statusFilter === s ? " on" : "")} onClick={() => setStatusFilter(s)}>{s}</button>
+          ))}
+        </div>
+      )}
 
       {live.length === 0 && edit === null && <div className="bm-empty">Noch keine geprüften Objekte. Neu angelegte Objekte erscheinen zunächst im Reiter „Prüfung".</div>}
       {live.length > 0 && filtered.length === 0 && <div className="bm-empty">Kein Objekt passt zu dieser Suche.</div>}
@@ -1304,7 +1328,7 @@ function ObjektePanel({ properties, buyers, matchesFor, addProp, updProp, delPro
               </div>
               <div className="bm-row" onClick={(e) => e.stopPropagation()}>
                 <span className={"bm-chip on"}>{objektStatusLabel(p.status)}</span>
-                <span className="bm-chip on">{matchesFor(p).filter((m) => m.score >= 60).length} passende Käufer</span>
+                {p.status !== "verkauft" && <span className="bm-chip on">{matchesFor(p).filter((m) => m.score >= 60).length} passende Käufer</span>}
                 <button className="bm-btn ghost sm" onClick={() => setSendCtx({ p, channel: "whatsapp" })}>WhatsApp</button>
                 <button className="bm-btn ghost sm" onClick={() => setSendCtx({ p, channel: "email" })}>E-Mail</button>
                 <button className="bm-btn ghost sm" onClick={() => setExpose(p)}>Exposé</button>
@@ -1675,8 +1699,7 @@ function Gate({ onOk }) {
     setErr("");
     try {
       const data = await sbSignIn(email, pw);
-      setAuthToken(data.access_token);
-      try { localStorage.setItem("bm_session", JSON.stringify({ refresh_token: data.refresh_token })); } catch { /* ignore */ }
+      setSession(data.access_token, data.refresh_token);
       onOk();
     } catch (e) {
       setErr(e?.message || "Anmeldung fehlgeschlagen");
@@ -1724,14 +1747,27 @@ export default function BestandsMatch() {
       const sess = JSON.parse(raw);
       sbRefresh(sess.refresh_token)
         .then((data) => {
-          setAuthToken(data.access_token);
-          try { localStorage.setItem("bm_session", JSON.stringify({ refresh_token: data.refresh_token })); } catch { /* ignore */ }
+          setSession(data.access_token, data.refresh_token);
           setAuthed(true);
         })
         .catch(() => { try { localStorage.removeItem("bm_session"); } catch { /* ignore */ } })
         .finally(() => setCheckingSession(false));
     } catch { setCheckingSession(false); }
   }, []);
+
+  // Zugangstoken laufen bei Supabase nach ca. 1 Stunde ab — im Hintergrund
+  // regelmäßig erneuern, damit die Sitzung bei täglicher Nutzung nicht
+  // unbemerkt abläuft.
+  useEffect(() => {
+    if (!authed) return;
+    const t = setInterval(() => {
+      if (!CURRENT_REFRESH) return;
+      sbRefresh(CURRENT_REFRESH)
+        .then((data) => setSession(data.access_token, data.refresh_token))
+        .catch(() => { sbSignOut(); setAuthed(false); });
+    }, 45 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [authed]);
 
   const logout = () => { sbSignOut(); setAuthed(false); setLoading(true); };
 
@@ -1776,12 +1812,23 @@ export default function BestandsMatch() {
 
   const addProp = async (f) => { const clean = { ...f }; delete clean.id; const saved = await sbInsert("objekte", clean); setProperties((prev) => [saved, ...prev]); };
   const updProp = async (id, f) => { const clean = { ...f }; delete clean.id; const saved = await sbUpdate("objekte", id, clean); setProperties((prev) => prev.map((x) => (x.id === id ? saved : x))); return saved; };
-  const delProp = async (id) => { await sbDelete("objekte", id); setProperties((prev) => prev.filter((x) => x.id !== id)); };
+  const delProp = async (id) => {
+    await sbDelete("objekte", id);
+    setProperties((prev) => prev.filter((x) => x.id !== id));
+    sbDeleteWhere("match_status", "objekt_id", id);
+    setMatchStatuses((prev) => prev.filter((r) => r.objekt_id !== id));
+  };
   const updBuyer = async (id, f) => { const clean = { ...f }; delete clean.id; const saved = await sbUpdate("kaeufer", id, clean); setBuyers((prev) => prev.map((x) => (x.id === id ? saved : x))); return saved; };
-  const delBuyer = async (id) => { await sbDelete("kaeufer", id); setBuyers((prev) => prev.filter((x) => x.id !== id)); };
+  const delBuyer = async (id) => {
+    await sbDelete("kaeufer", id);
+    setBuyers((prev) => prev.filter((x) => x.id !== id));
+    sbDeleteWhere("match_status", "kaeufer_id", id);
+    setMatchStatuses((prev) => prev.filter((r) => r.kaeufer_id !== id));
+  };
 
   const liveProperties = properties.filter((p) => p.status !== "ungeprüft");
   const pendingProperties = properties.filter((p) => p.status === "ungeprüft");
+  const matchableProperties = liveProperties.filter((p) => p.status !== "verkauft");
   const matchStatusMap = useMemo(() => {
     const map = new Map();
     matchStatuses.forEach((r) => map.set(`${r.objekt_id}_${r.kaeufer_id}`, r));
@@ -1797,12 +1844,12 @@ export default function BestandsMatch() {
     .sort((a, z) => z.score - a.score);
   const allMatches = useMemo(() => {
     const out = [];
-    liveProperties.forEach((p) => buyers.forEach((b) => {
+    matchableProperties.forEach((p) => buyers.forEach((b) => {
       const m = bewerte(p, b);
       if (m.score > 0) out.push(enrich(p, b, m));
     }));
     return out;
-  }, [liveProperties, buyers, matchStatusMap]);
+  }, [matchableProperties, buyers, matchStatusMap]);
   const totalVoll = allMatches.filter((m) => m.volltreffer && m.matchStatus !== "erledigt").length;
   const todayStr = new Date().toISOString().slice(0, 10);
   const isToday = (iso) => !!iso && iso.slice(0, 10) === todayStr;
@@ -1853,11 +1900,11 @@ export default function BestandsMatch() {
             </div>
 
             <div className="bm-body">
-              {tab === "uebersicht" && <Dashboard properties={liveProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} neueObjekteHeute={neueObjekteHeute} neueKaeuferHeute={neueKaeuferHeute} activity={activity} setTab={setTab} onOpenMatch={setMatchAction} onOpenBuyer={setBuyerDetail} updBuyer={updBuyer} notify={notify} addActivity={addActivity} />}
+              {tab === "uebersicht" && <Dashboard properties={matchableProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} neueObjekteHeute={neueObjekteHeute} neueKaeuferHeute={neueKaeuferHeute} activity={activity} setTab={setTab} onOpenMatch={setMatchAction} onOpenBuyer={setBuyerDetail} updBuyer={updBuyer} notify={notify} addActivity={addActivity} />}
               {tab === "objekte" && <ObjektePanel properties={properties} buyers={buyers} matchesFor={matchesFor} addProp={addProp} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} onOpenMatch={setMatchAction} />}
               {tab === "pruefung" && <PruefungPanel pending={pendingProperties} matchesFor={matchesFor} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} onOpenMatch={setMatchAction} />}
               {tab === "kaeufer" && <KaeuferPanel buyers={buyers} properties={liveProperties} updBuyer={updBuyer} delBuyer={delBuyer} notify={notify} addActivity={addActivity} />}
-              {tab === "matches" && <MatchesPanel properties={liveProperties} matchesFor={matchesFor} onOpenMatch={setMatchAction} />}
+              {tab === "matches" && <MatchesPanel properties={matchableProperties} matchesFor={matchesFor} onOpenMatch={setMatchAction} />}
             </div>
           </div>
           {toast && <div className="bm-toast">{toast}</div>}

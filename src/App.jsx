@@ -6,7 +6,6 @@ import React, { useState, useEffect, useMemo } from "react";
 const CONFIG = {
   markenName: "Wohnblick",
   toolName: "BestandsMatch",
-  adminPasswort: "wohnblick2026", // <- dein Zugang. Bitte ändern.
   supabaseUrl: "https://yascpvuxlavzfardyssb.supabase.co",
   supabaseKey: "sb_publishable_iIyGA8S_RSZGSVofCcEbIA_KfZe-z0x",
 };
@@ -18,11 +17,39 @@ const OBJEKTARTEN = [
 ];
 
 /* =========================================================================
+   SUPABASE AUTH — echter Login statt Passwort-String
+   ========================================================================= */
+let CURRENT_TOKEN = null;
+const setAuthToken = (token) => { CURRENT_TOKEN = token; };
+async function sbSignIn(email, password) {
+  const res = await fetch(`${CONFIG.supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { apikey: CONFIG.supabaseKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) { const t = await res.json().catch(() => ({})); throw new Error(t.error_description || t.msg || "Anmeldung fehlgeschlagen"); }
+  return res.json();
+}
+async function sbRefresh(refresh_token) {
+  const res = await fetch(`${CONFIG.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: { apikey: CONFIG.supabaseKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token }),
+  });
+  if (!res.ok) throw new Error("Session abgelaufen");
+  return res.json();
+}
+function sbSignOut() {
+  setAuthToken(null);
+  try { localStorage.removeItem("bm_session"); } catch { /* ignore */ }
+}
+
+/* =========================================================================
    SUPABASE — schlanker REST-Client (kein SDK nötig)
    ========================================================================= */
 const sbHeaders = (extra = {}) => ({
   apikey: CONFIG.supabaseKey,
-  Authorization: `Bearer ${CONFIG.supabaseKey}`,
+  Authorization: `Bearer ${CURRENT_TOKEN || CONFIG.supabaseKey}`,
   "Content-Type": "application/json",
   ...extra,
 });
@@ -73,8 +100,8 @@ const relTime = (iso) => {
   return `vor ${Math.round(hrs / 24)} Tg.`;
 };
 
-const OBJEKT_STATUS = ["aktiv", "reserviert", "verkauft"];
-const objektStatusLabel = (s) => (s === "reserviert" ? "Reserviert" : s === "verkauft" ? "Verkauft" : "Aktiv");
+const OBJEKT_STATUS = ["ungeprüft", "aktiv", "reserviert", "verkauft"];
+const objektStatusLabel = (s) => (s === "ungeprüft" ? "Ungeprüft" : s === "reserviert" ? "Reserviert" : s === "verkauft" ? "Verkauft" : "Aktiv");
 
 /* Kontaktdaten aus einer automatisch importierten Notiz herauslesen (Fallback,
    falls eine externe Automatisierung sie nicht in die Kontaktfelder schreibt) */
@@ -1340,11 +1367,31 @@ function KaeuferPanel({ buyers, properties, updBuyer, delBuyer, notify, addActiv
     return hay.includes(q.toLowerCase());
   });
 
+  const exportCSV = () => {
+    const headers = ["Name", "E-Mail", "Telefon", "Rolle", "Budget von", "Budget bis", "Einheiten ab", "Min. Rendite", "Regionen", "Objektarten", "Bereitschaft", "Status", "Eigener Verkauf", "Eingegangen am"];
+    const rows = buyers.map((b) => [
+      b.name, b.email, b.telefon, b.rolle, b.budget_min, b.budget_max, b.einheiten_min, b.min_rendite,
+      b.regionen || b.region_label, (b.objektarten || []).join("; "), b.bereitschaft, b.status || "neu", b.verkauf,
+      b.created_at ? new Date(b.created_at).toLocaleDateString("de-DE") : "",
+    ]);
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [headers, ...rows].map((r) => r.map(esc).join(",")).join("\r\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `kaeufer-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
-      <div style={{ marginBottom: 16 }}>
-        <p className="bm-h1">Käufer-Datenbank</p>
-        <p className="bm-muted bm-small">Läuft automatisch über deine Käufer-Landingpage ein.</p>
+      <div className="bm-between" style={{ marginBottom: 16 }}>
+        <div>
+          <p className="bm-h1">Käufer-Datenbank</p>
+          <p className="bm-muted bm-small">Läuft automatisch über deine Käufer-Landingpage ein.</p>
+        </div>
+        {buyers.length > 0 && <button className="bm-btn ghost sm" onClick={exportCSV}>Als CSV exportieren</button>}
       </div>
 
       {buyers.length > 0 && (
@@ -1614,20 +1661,40 @@ const MatchStatusBadge = ({ status, updatedAt }) => {
 };
 
 /* =========================================================================
-   PASSWORT-GATE
+   LOGIN (Supabase Auth)
    ========================================================================= */
 function Gate({ onOk }) {
+  const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
-  const [err, setErr] = useState(false);
-  const go = () => (pw === CONFIG.adminPasswort ? onOk() : setErr(true));
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const go = async () => {
+    if (!email || !pw) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const data = await sbSignIn(email, pw);
+      setAuthToken(data.access_token);
+      try { localStorage.setItem("bm_session", JSON.stringify({ refresh_token: data.refresh_token })); } catch { /* ignore */ }
+      onOk();
+    } catch (e) {
+      setErr(e?.message || "Anmeldung fehlgeschlagen");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="bm-gate"><div className="bm-gatecard">
       <div className="bm-brand" style={{ justifyContent: "center", marginBottom: 18 }}><span className="bm-dot" /><b>{CONFIG.toolName}</b></div>
       <div className="bm-card">
-        <label className="bm-f" style={{ textAlign: "left" }}>Zugangspasswort</label>
-        <input type="password" value={pw} autoFocus onChange={(e) => { setPw(e.target.value); setErr(false); }} onKeyDown={(e) => e.key === "Enter" && go()} />
-        {err && <p className="bm-small" style={{ color: "#d98a6a", marginTop: 8, textAlign: "left" }}>Passwort stimmt nicht.</p>}
-        <button className="bm-btn primary" style={{ marginTop: 14, width: "100%", justifyContent: "center" }} onClick={go}>Anmelden</button>
+        <label className="bm-f" style={{ textAlign: "left" }}>E-Mail</label>
+        <input type="email" value={email} autoFocus autoComplete="username" onChange={(e) => { setEmail(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && go()} />
+        <label className="bm-f" style={{ textAlign: "left", marginTop: 12 }}>Passwort</label>
+        <input type="password" value={pw} autoComplete="current-password" onChange={(e) => { setPw(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && go()} />
+        {err && <p className="bm-small" style={{ color: "#d98a6a", marginTop: 8, textAlign: "left" }}>{err}</p>}
+        <button className="bm-btn primary" style={{ marginTop: 14, width: "100%", justifyContent: "center" }} disabled={busy} onClick={go}>{busy ? "Prüft …" : "Anmelden"}</button>
       </div>
       <p className="bm-muted bm-small" style={{ marginTop: 12 }}>Nur für internen Gebrauch · {CONFIG.markenName}</p>
     </div></div>
@@ -1639,6 +1706,7 @@ function Gate({ onOk }) {
    ========================================================================= */
 export default function BestandsMatch() {
   const [authed, setAuthed] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [properties, setProperties] = useState([]);
   const [buyers, setBuyers] = useState([]);
   const [activity, setActivity] = useState([]);
@@ -1647,6 +1715,25 @@ export default function BestandsMatch() {
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState("uebersicht");
   const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    let raw = null;
+    try { raw = localStorage.getItem("bm_session"); } catch { /* ignore */ }
+    if (!raw) { setCheckingSession(false); return; }
+    try {
+      const sess = JSON.parse(raw);
+      sbRefresh(sess.refresh_token)
+        .then((data) => {
+          setAuthToken(data.access_token);
+          try { localStorage.setItem("bm_session", JSON.stringify({ refresh_token: data.refresh_token })); } catch { /* ignore */ }
+          setAuthed(true);
+        })
+        .catch(() => { try { localStorage.removeItem("bm_session"); } catch { /* ignore */ } })
+        .finally(() => setCheckingSession(false));
+    } catch { setCheckingSession(false); }
+  }, []);
+
+  const logout = () => { sbSignOut(); setAuthed(false); setLoading(true); };
 
   const notify = (msg) => setToast(msg);
   useEffect(() => {
@@ -1681,10 +1768,11 @@ export default function BestandsMatch() {
   };
 
   useEffect(() => {
+    if (!authed) return;
     loadAll(false);
     const t = setInterval(() => loadAll(false), 15000);
     return () => clearInterval(t);
-  }, []);
+  }, [authed]);
 
   const addProp = async (f) => { const clean = { ...f }; delete clean.id; const saved = await sbInsert("objekte", clean); setProperties((prev) => [saved, ...prev]); };
   const updProp = async (id, f) => { const clean = { ...f }; delete clean.id; const saved = await sbUpdate("objekte", id, clean); setProperties((prev) => prev.map((x) => (x.id === id ? saved : x))); return saved; };
@@ -1738,7 +1826,9 @@ export default function BestandsMatch() {
   return (
     <div className="bm-root">
       <style>{CSS}</style>
-      {!authed ? (
+      {checkingSession ? (
+        <div className="bm-gate"><div className="bm-spin" /></div>
+      ) : !authed ? (
         <Gate onOk={() => setAuthed(true)} />
       ) : loading ? (
         <div className="bm-gate"><div className="bm-spin" /></div>
@@ -1746,7 +1836,10 @@ export default function BestandsMatch() {
         <>
           <div className="bm-topbar">
             <div className="bm-brand"><span className="bm-dot" /><b>{CONFIG.toolName}</b><span>{CONFIG.markenName} · live</span></div>
-            <button className="bm-btn ghost sm" onClick={() => loadAll(true)} disabled={syncing}>{syncing ? "Lädt …" : "Aktualisieren"}</button>
+            <div className="bm-row">
+              <button className="bm-btn ghost sm" onClick={() => loadAll(true)} disabled={syncing}>{syncing ? "Lädt …" : "Aktualisieren"}</button>
+              <button className="bm-btn ghost sm" onClick={logout}>Abmelden</button>
+            </div>
           </div>
 
           <div className="bm-wrap">

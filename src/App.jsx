@@ -125,6 +125,55 @@ function parseKontaktFromNotiz(notiz) {
   return { name: m[1].trim(), email: m[2].trim(), telefon: m[3].trim() };
 }
 
+/* Sanierungszustand je Gewerk + übrige Verkäufer-Einschätzung aus der automatisch
+   importierten Notiz herauslesen (BestandsKompass-Automatisierung). Rein generisch
+   nach "Label: Wert"-Paaren gesucht, damit auch künftig neue Felder ohne Code-
+   Änderung mit aufgenommen werden — Gewerke-Zeile wird gesondert als Liste geparst. */
+const GEWERK_LABELS = {
+  dach: "Dach", fassade: "Fassade", fenster: "Fenster", heizung: "Heizung",
+  elektrik: "Elektrik", leitungen: "Leitungen", sanitaer: "Sanitär", bad: "Bad",
+  balkone: "Balkone", keller: "Keller", boden: "Boden", daemmung: "Dämmung", dämmung: "Dämmung",
+};
+const gewerkLabel = (key) => GEWERK_LABELS[key] || (key.charAt(0).toUpperCase() + key.slice(1));
+const gewerkTone = (value) => {
+  const v = (value || "").toLowerCase();
+  if (v.includes("unsaniert") || v.includes("renovierungsbedürftig") || v.includes("schlecht") || v.includes("alt")) return "bad";
+  if (v.includes("teilsaniert") || v.includes("teilweise") || v.includes("mittel")) return "mid";
+  if (v.includes("saniert") || v.includes("neu") || v.includes("gut") || v.includes("modernisiert")) return "good";
+  return "neutral";
+};
+
+function parseVerkaeuferDaten(notiz) {
+  if (!notiz) return null;
+  const gewerke = {};
+  const gm = notiz.match(/Zustand je Gewerk:\s*([^\n]+)/i);
+  if (gm) {
+    gm[1].split(",").forEach((pair) => {
+      const idx = pair.indexOf(":");
+      if (idx === -1) return;
+      const k = pair.slice(0, idx).trim().toLowerCase();
+      const v = pair.slice(idx + 1).trim();
+      if (k && v) gewerke[k] = v;
+    });
+  }
+
+  const skipLine = /^(Automatisch angelegt|Kontakt:|Zustand je Gewerk:)/i;
+  const felder = [];
+  notiz.split("\n").forEach((rawLine) => {
+    const line = rawLine.replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, "").trim();
+    if (!line || skipLine.test(line)) return;
+    line.split("·").forEach((seg) => {
+      const idx = seg.indexOf(":");
+      if (idx === -1) return;
+      const label = seg.slice(0, idx).trim();
+      const value = seg.slice(idx + 1).trim();
+      if (label && value) felder.push({ label, value });
+    });
+  });
+
+  return (Object.keys(gewerke).length > 0 || felder.length > 0) ? { gewerke, felder } : null;
+}
+
 /* Kurztext für WhatsApp/E-Mail — Eckdaten + Kurzbeschreibung als Pitch, ohne Bilder */
 function buildPitchText(p, channel = "email") {
   const r = rendite(p);
@@ -312,6 +361,25 @@ html, body{ margin:0; padding:0; background:#121010; }
 .bm-contactcard-role{ font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); }
 .bm-contactcard-name{ font-family:var(--serif); font-size:15px; font-weight:700; color:var(--ink); }
 .bm-contactcard-sub{ font-size:12px; color:var(--graphite); margin-top:1px; }
+
+/* Sanierungszustand je Gewerk */
+.bm-gewerke-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; }
+.bm-gewerk-tile{ display:flex; align-items:center; gap:9px; padding:11px 13px; border:1px solid var(--line); border-radius:10px; background:var(--panel-2); }
+.bm-gewerk-dot{ width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+.bm-gewerk-tile.good .bm-gewerk-dot{ background:#7FBF7F; }
+.bm-gewerk-tile.mid .bm-gewerk-dot{ background:var(--gold); }
+.bm-gewerk-tile.bad .bm-gewerk-dot{ background:#e08a6f; }
+.bm-gewerk-tile.neutral .bm-gewerk-dot{ background:var(--mute); }
+.bm-gewerk-name{ font-size:12.5px; font-weight:700; color:var(--ink); flex:1; }
+.bm-gewerk-status{ font-size:11.5px; color:var(--graphite); white-space:nowrap; }
+
+/* Verkäufer-Einschätzung — streng intern, nie im Exposé */
+.bm-card-internal{ border-color:rgba(224,138,111,.35); background:rgba(224,138,111,.045); }
+.bm-internal-tag{ font-size:11px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; color:#e08a6f; margin-bottom:14px; }
+.bm-verkdaten-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:14px; }
+.bm-verkdaten-item{ display:flex; flex-direction:column; gap:2px; }
+.bm-verkdaten-item span{ font-size:11px; color:var(--mute); }
+.bm-verkdaten-item strong{ font-size:13.5px; color:var(--ink); font-weight:600; }
 .bm-contactcard-actions{ display:flex; gap:8px; flex-wrap:wrap; }
 .bm-contactcard-actions a{ text-decoration:none; }
 
@@ -1008,6 +1076,7 @@ function SendModal({ p, buyers, matchesFor, channel, onClose }) {
 
 function ExposeModal({ p, onClose }) {
   const r = rendite(p);
+  const gewerke = parseVerkaeuferDaten(p.notiz)?.gewerke;
   return (
     <div className="bm-expose-overlay">
       <div className="bm-expose-bar">
@@ -1041,6 +1110,13 @@ function ExposeModal({ p, onClose }) {
           <div><span>Zustand</span><strong>{p.zustand || "—"}</strong></div>
         </div>
 
+        {gewerke && Object.keys(gewerke).length > 0 && (
+          <div style={{ marginTop: 22 }}>
+            <p className="bm-h2" style={{ marginBottom: 12 }}>Sanierungszustand je Gewerk</p>
+            <GewerkeGrid gewerke={gewerke} />
+          </div>
+        )}
+
         <div className="bm-expose-foot">
           <span>Ihr Ansprechpartner: Philipp Streib · {CONFIG.markenName}</span>
           <span>{new Date().toLocaleDateString("de-DE")}</span>
@@ -1054,11 +1130,24 @@ function ExposeModal({ p, onClose }) {
 /* =========================================================================
    OBJEKT-DETAILSEITE
    ========================================================================= */
+const GewerkeGrid = ({ gewerke }) => (
+  <div className="bm-gewerke-grid">
+    {Object.entries(gewerke).map(([key, value]) => (
+      <div className={"bm-gewerk-tile " + gewerkTone(value)} key={key}>
+        <span className="bm-gewerk-dot" />
+        <span className="bm-gewerk-name">{gewerkLabel(key)}</span>
+        <span className="bm-gewerk-status">{value}</span>
+      </div>
+    ))}
+  </div>
+);
+
 function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben, onExpose, onSend, onStatusChange, onUebernehmen, onOpenMatch }) {
   const r = rendite(p);
   const ms = matchesFor(p);
   const pending = p.status === "ungeprüft";
   const parsed = !p.kontakt_name && !p.kontakt_telefon && !p.kontakt_email ? parseKontaktFromNotiz(p.notiz) : null;
+  const verkData = parseVerkaeuferDaten(p.notiz);
   const kontakt = parsed || { name: p.kontakt_name, telefon: p.kontakt_telefon, email: p.kontakt_email };
   const hatKontakt = kontakt.name || kontakt.telefon || kontakt.email;
   return (
@@ -1124,9 +1213,32 @@ function PropertyDetail({ p, matchesFor, onClose, onEdit, onDelete, onFreigeben,
           </div>
         )}
 
+        {verkData && Object.keys(verkData.gewerke).length > 0 && (
+          <div className="bm-card" style={{ marginTop: 14 }}>
+            <p className="bm-h2" style={{ marginBottom: 4 }}>Sanierungszustand je Gewerk</p>
+            <p className="bm-muted bm-small" style={{ marginBottom: 14 }}>Erscheint auch im Exposé für Käufer.</p>
+            <GewerkeGrid gewerke={verkData.gewerke} />
+          </div>
+        )}
+
+        {verkData && verkData.felder.length > 0 && (
+          <div className="bm-card bm-card-internal" style={{ marginTop: 14 }}>
+            <p className="bm-h2" style={{ marginBottom: 4 }}>Verkäufer-Einschätzung</p>
+            <p className="bm-internal-tag">🔒 Nur intern — erscheint nie im Exposé</p>
+            <div className="bm-verkdaten-grid">
+              {verkData.felder.map((f, i) => (
+                <div className="bm-verkdaten-item" key={i}>
+                  <span>{f.label}</span>
+                  <strong>{f.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {p.notiz && (
           <div className="bm-card" style={{ marginTop: 14 }}>
-            <p className="bm-h2">Interne Notiz</p>
+            <p className="bm-h2">Interne Notiz (Rohtext)</p>
             <p className="bm-muted bm-small" style={{ whiteSpace: "pre-wrap" }}>{p.notiz}</p>
           </div>
         )}

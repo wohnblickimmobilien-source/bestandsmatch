@@ -279,6 +279,26 @@ const IconSearch = () => (
     <path d="M21 21l-4.3-4.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
   </svg>
 );
+const IconPeople = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+    <circle cx="9" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.6" />
+    <path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    <path d="M15.5 5.2c1.5.4 2.5 1.7 2.5 3.2 0 1.5-1 2.8-2.5 3.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M17 14.7c2.4.6 4 2.4 4 4.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+const IconTarget = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+    <circle cx="12" cy="12" r="8.2" stroke="currentColor" strokeWidth="1.5" />
+    <circle cx="12" cy="12" r="4.4" stroke="currentColor" strokeWidth="1.5" />
+    <circle cx="12" cy="12" r="1.3" fill="currentColor" />
+  </svg>
+);
+const IconSpark = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+    <path d="M12 3v6M12 15v6M3 12h6M15 12h6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+  </svg>
+);
 
 /* Score-Ring (statisch, performant für Listen) */
 function ScoreRing({ score, size = 54 }) {
@@ -396,13 +416,16 @@ html, body{ margin:0; padding:0; background:#121010; overflow-x:hidden; }
 .bm-err{ color:#e08a6f; font-size:13px; padding:12px 16px; border:1px solid #5c3b30; border-radius:10px; background:rgba(224,138,111,.08); margin-bottom:16px; }
 
 /* Dashboard */
-.bm-stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:26px; }
-.bm-stat{ background:var(--panel); padding:20px; border:none; text-align:left; font:inherit; cursor:default; display:block; width:100%; }
-.bm-stat.clickable{ cursor:pointer; transition:background .15s ease; }
-.bm-stat.clickable:hover{ background:var(--panel-2); }
+.bm-stats{ display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-bottom:26px; }
+@media(min-width:700px){ .bm-stats{ grid-template-columns:repeat(4,1fr); } }
+.bm-stat{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; text-align:left; font:inherit; cursor:default; display:flex; flex-direction:column; gap:9px; align-items:flex-start; }
+.bm-stat.clickable{ cursor:pointer; transition:border-color .15s ease, transform .15s ease, background .15s ease; }
+.bm-stat.clickable:hover{ border-color:var(--gold-line); background:var(--panel-2); transform:translateY(-1px); }
+.bm-stat-icon{ width:30px; height:30px; border-radius:9px; background:var(--gold-tint); color:var(--gold); display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+.bm-stat.alert .bm-stat-icon{ background:rgba(228,205,147,.16); color:var(--gold-bright); }
 .bm-stat.alert .bm-stat-v{ color:var(--gold-bright); }
-.bm-stat-v{ font-family:var(--fig); font-weight:500; font-size:28px; color:var(--gold); letter-spacing:-.01em; line-height:1; }
-.bm-stat-l{ font-size:12px; color:var(--graphite); margin-top:8px; }
+.bm-stat-v{ font-family:var(--fig); font-weight:500; font-size:26px; color:var(--gold); letter-spacing:-.01em; line-height:1; }
+.bm-stat-l{ font-size:12px; color:var(--graphite); }
 
 /* Heute-Banner */
 .bm-heute{ display:flex; align-items:center; gap:14px; padding:16px 20px; margin-bottom:18px; border-radius:12px; background:linear-gradient(135deg, var(--gold-tint), transparent); border:1px solid var(--gold-line); }
@@ -630,10 +653,6 @@ button, a, .bm-tab, .bm-stat{ -webkit-tap-highlight-color:transparent; touch-act
 input, textarea{ -webkit-user-select:text; user-select:text; }
 
 @media(max-width:700px){
-  .bm-stats{ grid-template-columns:1fr; gap:1px; }
-  .bm-stat{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; padding:16px 18px; }
-  .bm-stat-v{ flex:0 0 auto; }
-  .bm-stat-l{ margin-top:0; text-align:right; }
   .bm-between{ flex-direction:column; align-items:stretch; }
   .bm-between .bm-row{ margin-top: 10px; }
   .bm-tabs{ overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; padding-bottom:2px; }
@@ -932,10 +951,26 @@ function Dashboard({ properties, buyers, allMatches, pendingCount, neueObjekteHe
       )}
 
       <div className="bm-stats">
-        <button className="bm-stat clickable" onClick={() => setTab("objekte")}><div className="bm-stat-v">{properties.length}</div><div className="bm-stat-l">Objekte im Bestand</div></button>
-        <button className="bm-stat clickable" onClick={() => setTab("kaeufer")}><div className="bm-stat-v">{buyers.length}</div><div className="bm-stat-l">Käufer gesamt</div></button>
-        <button className={"bm-stat clickable" + (offeneVoll > 0 ? " alert" : "")} onClick={() => setTab("matches")}><div className="bm-stat-v">{offeneVoll}</div><div className="bm-stat-l">Offene Volltreffer</div></button>
-        <button className="bm-stat clickable" onClick={() => setTab("kaeufer")}><div className="bm-stat-v">{neueKaeufer7}</div><div className="bm-stat-l">Neue Käufer (7 Tage)</div></button>
+        <button className="bm-stat clickable" onClick={() => setTab("objekte")}>
+          <span className="bm-stat-icon"><IconBuilding lit /></span>
+          <span className="bm-stat-v">{properties.length}</span>
+          <span className="bm-stat-l">Objekte im Bestand</span>
+        </button>
+        <button className="bm-stat clickable" onClick={() => setTab("kaeufer")}>
+          <span className="bm-stat-icon"><IconPeople /></span>
+          <span className="bm-stat-v">{buyers.length}</span>
+          <span className="bm-stat-l">Käufer gesamt</span>
+        </button>
+        <button className={"bm-stat clickable" + (offeneVoll > 0 ? " alert" : "")} onClick={() => setTab("matches")}>
+          <span className="bm-stat-icon"><IconTarget /></span>
+          <span className="bm-stat-v">{offeneVoll}</span>
+          <span className="bm-stat-l">Offene Volltreffer</span>
+        </button>
+        <button className="bm-stat clickable" onClick={() => setTab("kaeufer")}>
+          <span className="bm-stat-icon"><IconSpark /></span>
+          <span className="bm-stat-v">{neueKaeufer7}</span>
+          <span className="bm-stat-l">Neue Käufer (7 Tage)</span>
+        </button>
       </div>
 
       {pendingCount > 0 && (

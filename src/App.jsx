@@ -427,6 +427,12 @@ html, body{ margin:0; padding:0; background:#121010; overflow-x:hidden; }
 .bm-stat-v{ font-family:var(--fig); font-weight:500; font-size:26px; color:var(--gold); letter-spacing:-.01em; line-height:1; }
 .bm-stat-l{ font-size:12px; color:var(--graphite); }
 
+/* Wachstumskurve */
+.bm-growth-svg{ display:block; width:100%; height:150px; margin-top:16px; }
+.bm-growth-legend{ display:flex; gap:22px; margin-top:14px; font-size:12.5px; color:var(--graphite); }
+.bm-growth-legend i{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; vertical-align:middle; }
+.bm-growth-legend b{ color:var(--ink); font-weight:700; margin-left:4px; }
+
 /* Heute-Banner */
 .bm-heute{ display:flex; align-items:center; gap:14px; padding:16px 20px; margin-bottom:18px; border-radius:12px; background:linear-gradient(135deg, var(--gold-tint), transparent); border:1px solid var(--gold-line); }
 .bm-heute-n{ font-family:var(--fig); font-weight:600; font-size:30px; color:var(--gold-bright); line-height:1; flex:0 0 auto; }
@@ -901,7 +907,64 @@ function FollowUpPopup({ overdue, onClose, onDone, onOpenBuyer }) {
 /* =========================================================================
    ÜBERSICHT (DASHBOARD)
    ========================================================================= */
-function Dashboard({ properties, buyers, allMatches, pendingCount, neueObjekteHeute, neueKaeuferHeute, activity, setTab, onOpenMatch, onOpenBuyer, updBuyer, notify, addActivity }) {
+/* Kumulative Tageswerte für die letzten N Tage berechnen (inkl. Startbestand vor dem Fenster) */
+function cumulativeSeries(items, days) {
+  const dayMs = 86400000;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const start = today.getTime() - (days - 1) * dayMs;
+  let baseline = 0;
+  const perDay = new Array(days).fill(0);
+  items.forEach((it) => {
+    if (!it.created_at) return;
+    const d = new Date(it.created_at); d.setHours(0, 0, 0, 0);
+    const t = d.getTime();
+    if (t < start) { baseline++; return; }
+    const idx = Math.round((t - start) / dayMs);
+    if (idx >= 0 && idx < days) perDay[idx]++;
+  });
+  const out = [];
+  let running = baseline;
+  for (let i = 0; i < days; i++) { running += perDay[i]; out.push(running); }
+  return out;
+}
+
+function GrowthChart({ allProperties, buyers }) {
+  const [range, setRange] = useState(30);
+  const objSeries = useMemo(() => cumulativeSeries(allProperties, range), [allProperties, range]);
+  const buySeries = useMemo(() => cumulativeSeries(buyers, range), [buyers, range]);
+  const max = Math.max(1, ...objSeries, ...buySeries);
+  const W = 600, H = 170, PAD = 4;
+  const xAt = (i) => (i / (range - 1)) * (W - PAD * 2) + PAD;
+  const yAt = (v) => H - PAD - (v / max) * (H - PAD * 2);
+  const linePath = (series) => series.map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(" ");
+  const areaPath = (series) => `${linePath(series)} L${xAt(range - 1).toFixed(1)},${H - PAD} L${xAt(0).toFixed(1)},${H - PAD} Z`;
+
+  return (
+    <div className="bm-dash-card">
+      <div className="bm-dash-h" style={{ justifyContent: "space-between" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 10 }}><span className="bm-dash-icon">↗</span>Wachstum</span>
+        <div className="bm-filters">
+          {[7, 30, 90].map((d) => (
+            <button key={d} className={"bm-fchip" + (range === d ? " on" : "")} onClick={() => setRange(d)}>{d} Tage</button>
+          ))}
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="bm-growth-svg" preserveAspectRatio="none">
+        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="var(--line)" strokeWidth="1" />
+        <path d={areaPath(buySeries)} fill="var(--gold-soft)" opacity="0.16" />
+        <path d={linePath(buySeries)} fill="none" stroke="var(--gold-soft)" strokeWidth="2" />
+        <path d={areaPath(objSeries)} fill="var(--gold)" opacity="0.16" />
+        <path d={linePath(objSeries)} fill="none" stroke="var(--gold)" strokeWidth="2.4" />
+      </svg>
+      <div className="bm-growth-legend">
+        <span><i style={{ background: "var(--gold)" }} />Objekte <b>{objSeries[objSeries.length - 1]}</b></span>
+        <span><i style={{ background: "var(--gold-soft)" }} />Käufer <b>{buySeries[buySeries.length - 1]}</b></span>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ properties, allProperties, buyers, allMatches, pendingCount, neueObjekteHeute, neueKaeuferHeute, activity, setTab, onOpenMatch, onOpenBuyer, updBuyer, notify, addActivity }) {
   const neueKaeufer7 = buyers.filter((b) => b.created_at && daysAgo(b.created_at) <= 7).length;
   const openMatches = allMatches.filter((m) => m.matchStatus !== "erledigt");
   const offeneVoll = openMatches.filter((m) => m.volltreffer).length;
@@ -972,6 +1035,8 @@ function Dashboard({ properties, buyers, allMatches, pendingCount, neueObjekteHe
           <span className="bm-stat-l">Neue Käufer (7 Tage)</span>
         </button>
       </div>
+
+      <GrowthChart allProperties={allProperties} buyers={buyers} />
 
       {pendingCount > 0 && (
         <div className="bm-alertbar" onClick={() => setTab("pruefung")}>
@@ -2105,7 +2170,7 @@ export default function BestandsMatch() {
             </div>
 
             <div className="bm-body">
-              {tab === "uebersicht" && <Dashboard properties={matchableProperties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} neueObjekteHeute={neueObjekteHeute} neueKaeuferHeute={neueKaeuferHeute} activity={activity} setTab={setTab} onOpenMatch={setMatchAction} onOpenBuyer={setBuyerDetail} updBuyer={updBuyer} notify={notify} addActivity={addActivity} />}
+              {tab === "uebersicht" && <Dashboard properties={matchableProperties} allProperties={properties} buyers={buyers} allMatches={allMatches} pendingCount={pendingProperties.length} neueObjekteHeute={neueObjekteHeute} neueKaeuferHeute={neueKaeuferHeute} activity={activity} setTab={setTab} onOpenMatch={setMatchAction} onOpenBuyer={setBuyerDetail} updBuyer={updBuyer} notify={notify} addActivity={addActivity} />}
               {tab === "objekte" && <ObjektePanel properties={properties} buyers={buyers} matchesFor={matchesFor} addProp={addProp} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} onOpenMatch={setMatchAction} />}
               {tab === "pruefung" && <PruefungPanel pending={pendingProperties} matchesFor={matchesFor} updProp={updProp} delProp={delProp} notify={notify} addActivity={addActivity} onOpenMatch={setMatchAction} />}
               {tab === "kaeufer" && <KaeuferPanel buyers={buyers} properties={liveProperties} updBuyer={updBuyer} delBuyer={delBuyer} notify={notify} addActivity={addActivity} />}

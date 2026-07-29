@@ -432,6 +432,13 @@ html, body{ margin:0; padding:0; background:#121010; overflow-x:hidden; }
 .bm-growth-legend{ display:flex; gap:22px; margin-top:14px; font-size:12.5px; color:var(--graphite); }
 .bm-growth-legend i{ display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; vertical-align:middle; }
 .bm-growth-legend b{ color:var(--ink); font-weight:700; margin-left:4px; }
+.bm-dash-h.bm-growth-head{ flex-direction:column; align-items:stretch; gap:14px; }
+.bm-growth-head .bm-filters{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; width:100%; }
+.bm-growth-head .bm-fchip{ text-align:center; white-space:nowrap; }
+@media(min-width:560px){
+  .bm-dash-h.bm-growth-head{ flex-direction:row; align-items:center; justify-content:space-between; }
+  .bm-growth-head .bm-filters{ display:flex; width:auto; }
+}
 
 /* Heute-Banner */
 .bm-heute{ display:flex; align-items:center; gap:14px; padding:16px 20px; margin-bottom:18px; border-radius:12px; background:linear-gradient(135deg, var(--gold-tint), transparent); border:1px solid var(--gold-line); }
@@ -941,7 +948,7 @@ function GrowthChart({ allProperties, buyers }) {
 
   return (
     <div className="bm-dash-card">
-      <div className="bm-dash-h" style={{ justifyContent: "space-between" }}>
+      <div className="bm-dash-h bm-growth-head">
         <span style={{ display: "flex", alignItems: "center", gap: 10 }}><span className="bm-dash-icon">↗</span>Wachstum</span>
         <div className="bm-filters">
           {[7, 30, 90].map((d) => (

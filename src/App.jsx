@@ -389,26 +389,6 @@ html, body{ margin:0; padding:0; background:#121010; overflow-x:hidden; }
 .bm-feed-item{ transition:transform .16s ease; }
 
 /* Mobile-Anpassungen */
-@media(max-width:700px){
-  .bm-stats{ grid-template-columns:1fr; gap:1px; }
-  .bm-stat{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; padding:16px 18px; }
-  .bm-stat-v{ flex:0 0 auto; }
-  .bm-stat-l{ margin-top:0; text-align:right; }
-  .bm-between{ flex-direction:column; align-items:stretch; }
-  .bm-between .bm-row{ margin-top: 10px; }
-  .bm-tabs{ overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; padding-bottom:2px; }
-  .bm-tab{ flex:0 0 auto; white-space:nowrap; padding:12px 14px; min-height:44px; }
-  .bm-topbar{ padding:14px 16px; flex-wrap:wrap; gap:8px; }
-  .bm-wrap{ padding:0 14px; }
-  .bm-modal-panel{ padding:18px; max-height:92vh; }
-  .bm-expose{ padding:26px 18px 60px; }
-  .bm-expose-bar{ flex-wrap:wrap; gap:10px; padding:12px 16px; }
-  .bm-contactcard{ flex-direction:column; align-items:flex-start; }
-  .bm-contactcard-actions{ width:100%; }
-  .bm-send-row{ flex-wrap:wrap; }
-  .bm-btn{ min-height:40px; }
-  .bm-btn.sm{ min-height:36px; }
-}
 
 .bm-body{ padding:26px 0 70px; }
 .bm-card{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:14px; }
@@ -637,6 +617,38 @@ label.bm-f{ display:block; font-size:11.5px; color:var(--mute); margin-bottom:5p
   .bm-expose-title, .bm-expose-desc, .bm-expose-addr{ color:#111 !important; }
   .bm-expose-kpis > div{ background:#f7f5f0 !important; border-color:#ddd !important; }
   .bm-expose-kpis strong, .bm-expose-brand{ color:#111 !important; }
+}
+
+/* =========================================================================
+   MOBILE / APP-GEFÜHL — bewusst als letzter Block, damit diese Regeln bei
+   gleicher Spezifität immer gewinnen (CSS entscheidet Gleichstände nach
+   Reihenfolge in der Datei, nicht nach dem Medienquery an sich).
+   ========================================================================= */
+html, body{ overscroll-behavior-y:contain; }
+button, a, .bm-tab, .bm-stat{ -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+.bm-tab, .bm-btn, .bm-stat{ -webkit-user-select:none; user-select:none; }
+input, textarea{ -webkit-user-select:text; user-select:text; }
+
+@media(max-width:700px){
+  .bm-stats{ grid-template-columns:1fr; gap:1px; }
+  .bm-stat{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; padding:16px 18px; }
+  .bm-stat-v{ flex:0 0 auto; }
+  .bm-stat-l{ margin-top:0; text-align:right; }
+  .bm-between{ flex-direction:column; align-items:stretch; }
+  .bm-between .bm-row{ margin-top: 10px; }
+  .bm-tabs{ overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; padding-bottom:2px; }
+  .bm-tab{ flex:0 0 auto; white-space:nowrap; padding:12px 14px; min-height:44px; }
+  .bm-topbar{ padding:calc(14px + env(safe-area-inset-top)) 16px 14px; flex-wrap:wrap; gap:8px; }
+  .bm-wrap{ padding:0 14px; }
+  .bm-modal-panel{ padding:18px; max-height:92vh; }
+  .bm-expose{ padding:26px 18px 60px; }
+  .bm-expose-bar{ flex-wrap:wrap; gap:10px; padding:12px 16px; }
+  .bm-contactcard{ flex-direction:column; align-items:flex-start; }
+  .bm-contactcard-actions{ width:100%; }
+  .bm-send-row{ flex-wrap:wrap; }
+  .bm-btn{ min-height:40px; }
+  .bm-btn.sm{ min-height:36px; }
+  .bm-body{ padding-bottom:calc(70px + env(safe-area-inset-bottom)); }
 }
 `;
 

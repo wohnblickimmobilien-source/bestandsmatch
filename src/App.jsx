@@ -185,36 +185,30 @@ function buildPitchText(p, channel = "email") {
   ].join("\n");
   const pitch = (p.kurzbeschreibung || "").trim();
 
+  // Als Absätze aufgebaut (durch Leerzeile getrennt), statt als einzelne Zeilen —
+  // so bleiben zusammengehörige Fakten eng beieinander, aber Abschnitte wirken
+  // nicht gequetscht. null-Einträge (z. B. fehlende Kurzbeschreibung) fallen raus,
+  // OHNE dabei die echten Leerzeilen zwischen den übrigen Absätzen zu verlieren.
   if (channel === "whatsapp") {
-    return [
-      `*Neues Ankaufsangebot – ${p.objektart || "Mehrfamilienhaus"}*`,
-      `${ort}`,
-      "",
+    const absaetze = [
+      `*Neues Ankaufsangebot – ${p.objektart || "Mehrfamilienhaus"}*\n${ort}`,
       eckdaten,
-      pitch ? `\n${pitch}` : "",
-      "",
+      pitch || null,
       "Passt das zu Ihrem Ankaufsprofil? Ich schicke Ihnen gerne das vollständige Exposé mit Bildern.",
-      "",
-      "Beste Grüße",
-      "Philipp Streib · Wohnblick Immobilien",
-    ].filter(Boolean).join("\n");
+      "Beste Grüße\nPhilipp Streib · Wohnblick Immobilien",
+    ];
+    return absaetze.filter(Boolean).join("\n\n");
   }
 
-  return [
+  const absaetze = [
     "Guten Tag,",
-    "",
-    `aktuell steht ein neues Objekt zum Ankauf zur Verfügung, das zu Ihrem Suchprofil passen könnte:`,
-    "",
-    `${p.objektart || "Mehrfamilienhaus"} in ${ort}`,
-    eckdaten,
-    pitch ? `\n${pitch}` : "",
-    "",
+    "aktuell steht ein neues Objekt zum Ankauf zur Verfügung, das zu Ihrem Suchprofil passen könnte:",
+    `${p.objektart || "Mehrfamilienhaus"} in ${ort}\n${eckdaten}`,
+    pitch || null,
     "Bei Interesse sende ich Ihnen im Anschluss gerne das vollständige Exposé mit weiteren Details und Fotos zu.",
-    "",
-    "Beste Grüße",
-    "Philipp Streib",
-    "Wohnblick Immobilien",
-  ].filter(Boolean).join("\n");
+    "Beste Grüße\nPhilipp Streib\nWohnblick Immobilien",
+  ];
+  return absaetze.filter(Boolean).join("\n\n");
 }
 /* Telefonnummer für wa.me normalisieren (bestmögliche Heuristik) */
 function waNummer(raw) {
@@ -549,8 +543,44 @@ label.bm-f{ display:block; font-size:11.5px; color:var(--mute); margin-bottom:5p
 .bm-divider{ height:1px; background:var(--line); margin:14px 0; }
 
 /* Gate */
-.bm-gate{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
-.bm-gatecard{ width:100%; max-width:380px; text-align:center; }
+.bm-gate{
+  min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+  background:
+    radial-gradient(60% 45% at 50% 0%, rgba(201,168,95,.12) 0%, rgba(201,168,95,.04) 40%, rgba(201,168,95,0) 70%),
+    var(--bg);
+}
+.bm-gatecard{
+  width:100%; max-width:380px; text-align:center;
+  border:1px solid var(--gold-line); border-radius:20px;
+  background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0)), var(--panel);
+  padding:44px 36px 32px;
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.65);
+}
+.bm-gate-mark{ display:flex; justify-content:center; margin-bottom:18px; }
+.bm-gate-dot{
+  width:14px; height:14px; border-radius:50%; background:var(--gold);
+  box-shadow:0 0 0 8px var(--gold-tint), 0 0 24px rgba(201,168,95,.5);
+}
+.bm-gate-brand{ font-family:var(--serif); font-size:22px; font-weight:600; letter-spacing:-.01em; color:var(--ink); }
+.bm-gate-sub{ font-size:12.5px; color:var(--mute); margin:4px 0 30px; letter-spacing:.04em; text-transform:uppercase; }
+.bm-gate-form{ display:flex; flex-direction:column; gap:6px; text-align:left; }
+.bm-gate-flabel{ font-size:11.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--mute); margin-top:14px; }
+.bm-gate-flabel:first-child{ margin-top:0; }
+.bm-gate-input{
+  font-family:var(--sans); font-size:15px; padding:13px 14px; border-radius:10px;
+  border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
+  transition:border-color .15s ease, background .15s ease;
+}
+.bm-gate-input:focus{ outline:none; border-color:var(--gold-line); background:var(--raise); }
+.bm-gate-err{ font-size:12.5px; color:#e08a6f; margin:10px 0 0; text-align:left; }
+.bm-gate-submit{
+  margin-top:22px; width:100%; padding:14px; border:none; border-radius:10px;
+  background:var(--gold); color:#1A1710; font-family:var(--sans); font-weight:700; font-size:14.5px;
+  cursor:pointer; transition:filter .15s ease, transform .15s ease;
+}
+.bm-gate-submit:hover:not(:disabled){ filter:brightness(1.06); }
+.bm-gate-submit:disabled{ opacity:.5; cursor:default; }
+.bm-gate-foot{ font-size:11.5px; color:var(--mute); margin-top:26px; letter-spacing:.02em; }
 .bm-spin{ width:22px; height:22px; border-radius:50%; border:2px solid var(--line); border-top-color:var(--gold); animation:bmSpin .7s linear infinite; margin:0 auto; }
 @keyframes bmSpin{ to{ transform:rotate(360deg); } }
 
@@ -1805,7 +1835,8 @@ function Gate({ onOk }) {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const go = async () => {
+  const go = async (e) => {
+    e.preventDefault();
     if (!email || !pw) return;
     setBusy(true);
     setErr("");
@@ -1821,18 +1852,31 @@ function Gate({ onOk }) {
   };
 
   return (
-    <div className="bm-gate"><div className="bm-gatecard">
-      <div className="bm-brand" style={{ justifyContent: "center", marginBottom: 18 }}><span className="bm-dot" /><b>{CONFIG.toolName}</b></div>
-      <div className="bm-card">
-        <label className="bm-f" style={{ textAlign: "left" }}>E-Mail</label>
-        <input type="email" value={email} autoFocus autoComplete="username" onChange={(e) => { setEmail(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && go()} />
-        <label className="bm-f" style={{ textAlign: "left", marginTop: 12 }}>Passwort</label>
-        <input type="password" value={pw} autoComplete="current-password" onChange={(e) => { setPw(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && go()} />
-        {err && <p className="bm-small" style={{ color: "#d98a6a", marginTop: 8, textAlign: "left" }}>{err}</p>}
-        <button className="bm-btn primary" style={{ marginTop: 14, width: "100%", justifyContent: "center" }} disabled={busy} onClick={go}>{busy ? "Prüft …" : "Anmelden"}</button>
+    <div className="bm-gate">
+      <div className="bm-gatecard">
+        <div className="bm-gate-mark"><span className="bm-gate-dot" /></div>
+        <div className="bm-gate-brand"><b>{CONFIG.toolName}</b></div>
+        <p className="bm-gate-sub">{CONFIG.markenName}</p>
+
+        <form className="bm-gate-form" onSubmit={go} autoComplete="on">
+          <label className="bm-gate-flabel" htmlFor="bm-email">E-Mail</label>
+          <input id="bm-email" className="bm-gate-input" type="email" name="email" value={email} autoFocus autoComplete="username"
+            onChange={(e) => { setEmail(e.target.value); setErr(""); }} />
+
+          <label className="bm-gate-flabel" htmlFor="bm-pw">Passwort</label>
+          <input id="bm-pw" className="bm-gate-input" type="password" name="password" value={pw} autoComplete="current-password"
+            onChange={(e) => { setPw(e.target.value); setErr(""); }} />
+
+          {err && <p className="bm-gate-err">{err}</p>}
+
+          <button type="submit" className="bm-gate-submit" disabled={busy || !email || !pw}>
+            {busy ? "Prüft …" : "Anmelden"}
+          </button>
+        </form>
+
+        <p className="bm-gate-foot">Nur für internen Gebrauch</p>
       </div>
-      <p className="bm-muted bm-small" style={{ marginTop: 12 }}>Nur für internen Gebrauch · {CONFIG.markenName}</p>
-    </div></div>
+    </div>
   );
 }
 
